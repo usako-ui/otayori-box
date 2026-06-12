@@ -1,0 +1,22 @@
+# Claude Code ローカル設定
+.claude/
+
+# OS固有ファイル
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# エディタ設定
+.vscode/
+.idea/
+*.swp
+*~
+
+# GAS連携（任意・clasp使用時にスクリプトIDを含むため）
+.clasp.json
+.clasprc.json
+
+# 機密情報
+*.env
+*.key
+credentials.json

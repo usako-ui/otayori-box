@@ -1,0 +1,783 @@
+<!-- =============================================
+     【settings.html】設定画面（T-16 + T-17）
+     対応機能：F-02 接続状態確認 / F-11 エラー対処ヘルプ
+     ・セクション1：接続状態（Drive/Spreadsheet OK/NG・保存先URL・登録件数・再確認）
+     ・セクション2：エラー対処ヘルプ（4項目アコーディオン）
+     ・セクション3：アプリ情報（バージョン・再セットアップ）
+     ・全 google.script.run は callGAS 経由（withFailureHandler 自動付与）
+     ・再セットアップは confirm() 必須・非破壊（既存データ保持マイグレーション）
+============================================= -->
+
+<style>
+  /* ---- ルート ---- */
+  .st-root {
+    width: 100%;
+    margin: 0 auto;
+    overflow-x: hidden;
+  }
+
+  /* ---- ページタイトル ---- */
+  .st-title {
+    font-family: var(--font-heading);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    font-size: 24px;
+    margin: 0 0 20px;
+  }
+
+  /* ---- セクション共通 ---- */
+  .st-section {
+    margin: 0 0 28px;
+  }
+  .st-section-title {
+    font-family: var(--font-heading);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    font-size: 16px;
+    color: var(--color-text);
+    margin: 0 0 14px;
+    padding: 4px 0 4px 12px;
+    border-left: 3px solid var(--color-primary);
+    border-bottom: none;
+    line-height: 1.4;
+  }
+
+  /* ---- 接続状態カード ---- */
+  .st-status-card {
+    background: var(--color-surface);
+    border-radius: 20px;
+    box-shadow: 0 2px 16px rgba(0,0,0,.06);
+    padding: 4px 18px;
+    margin-bottom: 16px;
+  }
+  .st-status-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--color-border);
+    font-size: 14px;
+  }
+  .st-status-row:last-child { border-bottom: none; }
+
+  .st-status-icon {
+    flex: 0 0 24px;
+    width: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #BDBDBD;
+  }
+  .st-status-icon i { width: 22px; height: 22px; }
+  .st-status-icon.is-ok    { color: var(--color-accent); }   /* #8AC926 */
+  .st-status-icon.is-ng    { color: #E53935; }
+  .st-status-icon.is-info  { color: var(--color-secondary); }
+
+  .st-status-label {
+    flex: 0 0 130px;
+    color: #666;
+    font-size: 13px;
+  }
+  .st-status-value {
+    flex: 1;
+    color: var(--color-text);
+    word-break: break-word;
+    min-width: 0;
+  }
+  .st-status-value.is-ng { color: #E53935; }
+  .st-status-value a {
+    color: var(--color-secondary);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .st-status-value a i { width: 14px; height: 14px; }
+
+  /* ---- 再確認ボタン ---- */
+  .st-recheck-btn { width: 100%; }
+
+  /* ---- エラー対処ヘルプ（アコーディオン） ---- */
+  .st-help-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .st-help-item {
+    background: var(--color-surface);
+    border-radius: 20px;
+    box-shadow: 0 2px 16px rgba(0,0,0,.06);
+    overflow: hidden;
+  }
+  .st-help-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    padding: 14px 16px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--color-text);
+    text-align: left;
+  }
+  .st-help-head:hover { background: rgba(0,0,0,.02); }
+  .st-help-title {
+    flex: 1;
+    line-height: 1.4;
+  }
+  .st-help-chevron {
+    flex: 0 0 auto;
+    color: #999;
+    display: inline-flex;
+    align-items: center;
+    transition: transform .2s ease;
+  }
+  .st-help-chevron i { width: 18px; height: 18px; }
+  .st-help-head.is-open .st-help-chevron {
+    transform: rotate(180deg);
+    color: var(--color-primary);
+  }
+
+  .st-help-body {
+    padding: 0 16px 14px;
+    font-size: 13px;
+    line-height: 1.7;
+    color: #555;
+  }
+  .st-help-body[hidden] { display: none; }
+  .st-help-body p { margin: 0; }
+
+  /* ---- アプリ情報 ---- */
+  .st-info-card {
+    background: var(--color-surface);
+    border-radius: 20px;
+    box-shadow: 0 2px 16px rgba(0,0,0,.06);
+    padding: 4px 18px;
+    margin-bottom: 16px;
+  }
+  .st-info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--color-border);
+    font-size: 14px;
+  }
+  .st-info-row:last-child { border-bottom: none; }
+  .st-info-label { color: var(--color-text-muted); font-size: 13px; }
+  .st-info-value {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    color: var(--color-text);
+  }
+
+  .st-resetup-btn { width: 100%; }
+  .st-resetup-note {
+    color: var(--color-text-muted);
+    font-size: 12px;
+    margin: 8px 2px 0;
+    line-height: 1.5;
+  }
+
+  /* ---- スピナー（接続確認中アイコン用） ---- */
+  .st-spin {
+    animation: st-spin 1s linear infinite;
+  }
+  @keyframes st-spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+
+  /* ---- テーマカラー選択 ---- */
+  .st-theme-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+  .st-theme-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 8px 14px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 16px;
+    box-shadow: 0 2px 12px rgba(0,0,0,.04);
+    cursor: pointer;
+    font-family: var(--font-body);
+    transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+  }
+  .st-theme-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(0,0,0,.08);
+  }
+  .st-theme-card.is-active {
+    border: 2px solid var(--color-primary);
+    padding: 15px 7px 13px; /* border 太化分の内側調整 */
+  }
+
+  .st-theme-check {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    display: none;
+    color: var(--color-primary);
+    line-height: 0;
+  }
+  .st-theme-check i { width: 18px; height: 18px; }
+  .st-theme-card.is-active .st-theme-check { display: inline-flex; }
+
+  .st-theme-dots {
+    display: flex;
+    gap: 4px;
+  }
+  .st-theme-dot {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+  /* 各テーマの3色ドット（固定色：テーマ切替後も常にそのテーマの色を表示） */
+  .st-theme-dot.is-orange-primary { background: #FF6B35; }
+  .st-theme-dot.is-orange-nav     { background: #2C3E6B; }
+  .st-theme-dot.is-orange-bg      { background: #FFFBF5; box-shadow: inset 0 0 0 1px #E8E0D0; }
+  .st-theme-dot.is-blue-primary   { background: #2D6BE4; }
+  .st-theme-dot.is-blue-nav       { background: #1A1A2E; }
+  .st-theme-dot.is-blue-bg        { background: #F5F9FF; box-shadow: inset 0 0 0 1px #DCE6F5; }
+  .st-theme-dot.is-green-primary  { background: #24BFA5; }
+  .st-theme-dot.is-green-nav      { background: #124C4A; }
+  .st-theme-dot.is-green-bg       { background: #F4FAF7; box-shadow: inset 0 0 0 1px #C8E8DA; }
+
+  .st-theme-name {
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.35;
+    text-align: center;
+    color: var(--color-text);
+  }
+
+  /* ---- レスポンシブ：タブレット（768px+） ---- */
+  @media (min-width: 768px) {
+    .st-status-label { flex: 0 0 160px; }
+  }
+</style>
+
+<div class="st-root">
+  <h1 class="st-title">設定</h1>
+
+  <!-- ===== セクション0：テーマカラー（新規・最上部） ===== -->
+  <section class="st-section">
+    <h2 class="st-section-title">テーマカラー</h2>
+
+    <div class="st-theme-grid">
+      <button type="button" class="st-theme-card" data-theme="orange" aria-label="オレンジ × ネイビーテーマ">
+        <span class="st-theme-check" aria-hidden="true"><i data-lucide="check-circle"></i></span>
+        <span class="st-theme-dots">
+          <span class="st-theme-dot is-orange-primary"></span>
+          <span class="st-theme-dot is-orange-nav"></span>
+          <span class="st-theme-dot is-orange-bg"></span>
+        </span>
+        <span class="st-theme-name">オレンジ<br>ネイビー</span>
+      </button>
+
+      <button type="button" class="st-theme-card" data-theme="blue" aria-label="スカイブルー × ネイビーテーマ">
+        <span class="st-theme-check" aria-hidden="true"><i data-lucide="check-circle"></i></span>
+        <span class="st-theme-dots">
+          <span class="st-theme-dot is-blue-primary"></span>
+          <span class="st-theme-dot is-blue-nav"></span>
+          <span class="st-theme-dot is-blue-bg"></span>
+        </span>
+        <span class="st-theme-name">ブルー<br>ネイビー</span>
+      </button>
+
+      <button type="button" class="st-theme-card" data-theme="green" aria-label="エメラルド × ディープグリーンテーマ">
+        <span class="st-theme-check" aria-hidden="true"><i data-lucide="check-circle"></i></span>
+        <span class="st-theme-dots">
+          <span class="st-theme-dot is-green-primary"></span>
+          <span class="st-theme-dot is-green-nav"></span>
+          <span class="st-theme-dot is-green-bg"></span>
+        </span>
+        <span class="st-theme-name">グリーン<br>ディープ</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- ===== セクション1：接続状態（F-02） ===== -->
+  <section class="st-section">
+    <h2 class="st-section-title">接続状態</h2>
+
+    <div class="st-status-card">
+      <!-- Drive 接続 -->
+      <div class="st-status-row">
+        <span class="st-status-icon" id="st-drive-icon">
+          <i data-lucide="loader-2" class="st-spin"></i>
+        </span>
+        <span class="st-status-label">Drive接続</span>
+        <span class="st-status-value" id="st-drive-value">確認中...</span>
+      </div>
+
+      <!-- Spreadsheet 接続 -->
+      <div class="st-status-row">
+        <span class="st-status-icon" id="st-spreadsheet-icon">
+          <i data-lucide="loader-2" class="st-spin"></i>
+        </span>
+        <span class="st-status-label">Spreadsheet接続</span>
+        <span class="st-status-value" id="st-spreadsheet-value">確認中...</span>
+      </div>
+
+      <!-- 保存先フォルダ -->
+      <div class="st-status-row">
+        <span class="st-status-icon is-info"><i data-lucide="folder"></i></span>
+        <span class="st-status-label">保存先フォルダ</span>
+        <span class="st-status-value" id="st-folder-value">—</span>
+      </div>
+
+      <!-- 登録件数 -->
+      <div class="st-status-row">
+        <span class="st-status-icon is-info"><i data-lucide="file-text"></i></span>
+        <span class="st-status-label">登録件数</span>
+        <span class="st-status-value" id="st-count-value">—</span>
+      </div>
+    </div>
+
+    <button type="button" class="btn btn-secondary st-recheck-btn" id="st-recheck">
+      <i data-lucide="refresh-cw"></i>再確認する
+    </button>
+  </section>
+
+  <!-- ===== セクション2：エラー対処ヘルプ（F-11） ===== -->
+  <section class="st-section">
+    <h2 class="st-section-title">エラー対処ヘルプ</h2>
+
+    <div class="st-help-list">
+      <article class="st-help-item">
+        <button type="button" class="st-help-head" aria-expanded="false">
+          <span class="st-help-title">画像が表示されない</span>
+          <span class="st-help-chevron"><i data-lucide="chevron-down"></i></span>
+        </button>
+        <div class="st-help-body" hidden>
+          <p>写真の保存場所（Googleドライブ）にアクセスできない状態です。</p>
+          <p>まず画面を閉じて開き直してください。直らない場合は「再セットアップを実行する」を押してください。</p>
+        </div>
+      </article>
+
+      <article class="st-help-item">
+        <button type="button" class="st-help-head" aria-expanded="false">
+          <span class="st-help-title">保存に失敗する</span>
+          <span class="st-help-chevron"><i data-lucide="chevron-down"></i></span>
+        </button>
+        <div class="st-help-body" hidden>
+          <p>以下の2点を確認してください。<br>
+          ・写真が10MBを超えていませんか？（スクショは通常1〜3MBなので問題なし）<br>
+          ・Googleドライブの空き容量は残っていますか？（無料版は15GBまで使えます）</p>
+        </div>
+      </article>
+
+      <article class="st-help-item">
+        <button type="button" class="st-help-head" aria-expanded="false">
+          <span class="st-help-title">子どもが登録できない</span>
+          <span class="st-help-chevron"><i data-lucide="chevron-down"></i></span>
+        </button>
+        <div class="st-help-body" hidden>
+          <p>以下を確認してください。<br>
+          ・登録できるのは最大10人までです<br>
+          ・名前が空白のまま保存しようとしていませんか？</p>
+        </div>
+      </article>
+
+      <article class="st-help-item">
+        <button type="button" class="st-help-head" aria-expanded="false">
+          <span class="st-help-title">画面が真っ白になる</span>
+          <span class="st-help-chevron"><i data-lucide="chevron-down"></i></span>
+        </button>
+        <div class="st-help-body" hidden>
+          <p>アプリの設定が壊れている可能性があります。「再セットアップを実行する」を押してください。</p>
+          <p>それでも直らない場合はブラウザの画面を強制リロード（Ctrl+Shift+R）してみてください。</p>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <!-- ===== セクション3：アプリ情報 ===== -->
+  <section class="st-section">
+    <h2 class="st-section-title">アプリ情報</h2>
+
+    <div class="st-info-card">
+      <div class="st-info-row">
+        <span class="st-info-label">バージョン</span>
+        <span class="st-info-value" id="st-version">—</span>
+      </div>
+    </div>
+
+    <button type="button" class="btn btn-ghost st-resetup-btn" id="st-resetup">
+      <i data-lucide="refresh-cw"></i>再セットアップを実行する
+    </button>
+    <p class="st-resetup-note">既存データは保持したまま、シート・列・Driveフォルダを最新仕様に揃え直します。</p>
+  </section>
+</div>
+
+<script>
+(function() {
+  // =============================================
+  // 【設定画面】接続状態確認・エラー対処ヘルプ・アプリ情報
+  // 同梱SPAのため即時実行関数で名前空間を閉じる
+  // =============================================
+
+  // ---- 状態 ----
+  var SettingsPageState = {
+    status:  null,    // getConnectionStatus結果
+    loading: false,   // 接続状態取得中フラグ
+    resetting: false, // 再セットアップ実行中フラグ
+    theme:   null     // 現在選択中のテーマ名（'orange' | 'blue' | 'green'）
+  };
+
+  // ---- DOM参照（init で確定） ----
+  var elDriveIcon, elDriveValue;
+  var elSpreadsheetIcon, elSpreadsheetValue;
+  var elFolderValue, elCountValue;
+  var elVersion;
+  var elRecheck, elResetup;
+  var elHelpHeads;
+  var elThemeCards;
+
+  // =============================================
+  // 【描画ヘルパ】アイコンを差し替える
+  // 引数：iconEl（span要素）, type（'ok' | 'ng' | 'loading'）
+  // =============================================
+  function setIcon(iconEl, type) {
+    try {
+      if (!iconEl) return;
+      iconEl.classList.remove('is-ok', 'is-ng');
+      if (type === 'ok') {
+        iconEl.classList.add('is-ok');
+        iconEl.innerHTML = '<i data-lucide="check-circle"></i>';
+      } else if (type === 'ng') {
+        iconEl.classList.add('is-ng');
+        iconEl.innerHTML = '<i data-lucide="x-circle"></i>';
+      } else {
+        // loading
+        iconEl.innerHTML = '<i data-lucide="loader-2" class="st-spin"></i>';
+      }
+    } catch (e) {
+      console.error('setIcon エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【描画】接続状態の各行を更新
+  // =============================================
+  function renderStatus(result) {
+    try {
+      if (!result) result = { drive: false, spreadsheet: false };
+
+      // Drive 行
+      if (result.drive) {
+        setIcon(elDriveIcon, 'ok');
+        elDriveValue.textContent = 'OK';
+        elDriveValue.classList.remove('is-ng');
+      } else {
+        setIcon(elDriveIcon, 'ng');
+        elDriveValue.textContent = 'NG';
+        elDriveValue.classList.add('is-ng');
+      }
+
+      // Spreadsheet 行
+      if (result.spreadsheet) {
+        setIcon(elSpreadsheetIcon, 'ok');
+        elSpreadsheetValue.textContent = 'OK';
+        elSpreadsheetValue.classList.remove('is-ng');
+      } else {
+        setIcon(elSpreadsheetIcon, 'ng');
+        elSpreadsheetValue.textContent = 'NG';
+        elSpreadsheetValue.classList.add('is-ng');
+      }
+
+      // 保存先フォルダ
+      if (result.folderUrl) {
+        // 安全のため textContent でリンクラベル・href のみ属性セット
+        elFolderValue.innerHTML = '';
+        var a = document.createElement('a');
+        a.href = result.folderUrl;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.textContent = 'Driveで開く';
+        var icon = document.createElement('i');
+        icon.setAttribute('data-lucide', 'external-link');
+        a.appendChild(icon);
+        elFolderValue.appendChild(a);
+        elFolderValue.classList.remove('is-ng');
+      } else {
+        elFolderValue.textContent = '取得できませんでした';
+        elFolderValue.classList.add('is-ng');
+      }
+
+      // 登録件数
+      if (result.spreadsheet) {
+        elCountValue.textContent = String(result.noticeCount || 0) + ' 件';
+        elCountValue.classList.remove('is-ng');
+      } else {
+        elCountValue.textContent = '—';
+        elCountValue.classList.add('is-ng');
+      }
+
+      // バージョン
+      elVersion.textContent = result.version ? 'v' + result.version : '—';
+
+      // 動的アイコン再描画
+      if (window.lucide) lucide.createIcons();
+    } catch (e) {
+      console.error('renderStatus エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【描画】接続状態をローディング表示に戻す
+  // =============================================
+  function renderLoading() {
+    try {
+      setIcon(elDriveIcon, 'loading');
+      setIcon(elSpreadsheetIcon, 'loading');
+      elDriveValue.textContent = '確認中...';
+      elDriveValue.classList.remove('is-ng');
+      elSpreadsheetValue.textContent = '確認中...';
+      elSpreadsheetValue.classList.remove('is-ng');
+      elFolderValue.textContent = '確認中...';
+      elFolderValue.classList.remove('is-ng');
+      elCountValue.textContent = '—';
+      elCountValue.classList.remove('is-ng');
+      if (window.lucide) lucide.createIcons();
+    } catch (e) {
+      console.error('renderLoading エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【ロード】接続状態を取得
+  // =============================================
+  function loadStatus() {
+    try {
+      if (SettingsPageState.loading) return;
+      SettingsPageState.loading = true;
+
+      // ボタン disabled・各行をローディング表示に
+      if (elRecheck) elRecheck.disabled = true;
+      renderLoading();
+
+      callGAS('getConnectionStatus', [], function(result) {
+        try {
+          SettingsPageState.status = result;
+          renderStatus(result);
+        } catch (e2) {
+          console.error('loadStatus success内エラー: ' + e2);
+        } finally {
+          SettingsPageState.loading = false;
+          if (elRecheck) elRecheck.disabled = false;
+        }
+      }, function(err) {
+        SettingsPageState.loading = false;
+        if (elRecheck) elRecheck.disabled = false;
+        // 取得自体が失敗 → 全NG扱いで描画
+        renderStatus({ drive: false, spreadsheet: false, folderUrl: null, noticeCount: 0, version: '' });
+        showToast('接続状態の取得に失敗しました', 'error');
+      });
+    } catch (e) {
+      console.error('loadStatus エラー: ' + e);
+      SettingsPageState.loading = false;
+      if (elRecheck) elRecheck.disabled = false;
+    }
+  }
+
+  // =============================================
+  // 【イベント】「再確認する」ボタン
+  // =============================================
+  function onRecheck() {
+    try {
+      loadStatus();
+    } catch (e) {
+      console.error('onRecheck エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【イベント】「再セットアップを実行する」ボタン
+  // 確認ダイアログ → runSetupFromWeb → 成功時は接続状態を再ロード
+  // =============================================
+  function onResetup() {
+    try {
+      if (SettingsPageState.resetting) return;
+      if (!window.confirm('再セットアップを実行しますか？\n（既存データは保持されます）')) return;
+
+      SettingsPageState.resetting = true;
+      var originalText = (typeof window.showLoading === 'function')
+        ? window.showLoading(elResetup)
+        : null;
+
+      callGAS('runSetupFromWeb', [], function(result) {
+        try {
+          showToast('再セットアップが完了しました', 'success');
+          loadStatus();   // 接続状態を再取得
+        } catch (e2) {
+          console.error('onResetup success内エラー: ' + e2);
+        } finally {
+          SettingsPageState.resetting = false;
+          if (typeof window.hideLoading === 'function') {
+            window.hideLoading(elResetup, originalText);
+          }
+        }
+      }, function(err) {
+        SettingsPageState.resetting = false;
+        if (typeof window.hideLoading === 'function') {
+          window.hideLoading(elResetup, originalText);
+        }
+        var msg = (err && err.message) ? err.message : '再セットアップに失敗しました';
+        showToast(msg, 'error');
+      });
+    } catch (e) {
+      console.error('onResetup エラー: ' + e);
+      SettingsPageState.resetting = false;
+    }
+  }
+
+  // =============================================
+  // 【イベント】アコーディオン開閉
+  // 複数同時オープン可（独立トグル）
+  // =============================================
+  function onAccordionClick(ev) {
+    try {
+      var head = ev.currentTarget;
+      var item = head.parentNode;
+      var body = item.querySelector('.st-help-body');
+      if (!body) return;
+
+      var isOpen = head.getAttribute('aria-expanded') === 'true';
+      var nextOpen = !isOpen;
+
+      head.setAttribute('aria-expanded', nextOpen ? 'true' : 'false');
+      head.classList.toggle('is-open', nextOpen);
+      body.hidden = !nextOpen;
+    } catch (e) {
+      console.error('onAccordionClick エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【テーマ】現在のテーマを取得し、対応カードに is-active を付与
+  // 起動時・テーマ切替時・ページ再訪問時に呼ぶ
+  // =============================================
+  function renderActiveTheme() {
+    try {
+      var current = window.CURRENT_THEME || 'orange';
+      SettingsPageState.theme = current;
+      if (!elThemeCards) return;
+      for (var i = 0; i < elThemeCards.length; i++) {
+        var name = elThemeCards[i].getAttribute('data-theme');
+        if (name === current) {
+          elThemeCards[i].classList.add('is-active');
+        } else {
+          elThemeCards[i].classList.remove('is-active');
+        }
+      }
+    } catch (e) {
+      console.error('renderActiveTheme エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【イベント】テーマカードクリック → 即時テーマ適用
+  // applyTheme（js.html）が CSS 変数上書き＋localStorage 保存を担当
+  // =============================================
+  function onThemeCardClick(ev) {
+    try {
+      var card = ev.currentTarget;
+      var name = card.getAttribute('data-theme');
+      if (!name || name === SettingsPageState.theme) return;
+      if (typeof window.applyTheme !== 'function') return;
+      window.applyTheme(name);
+      renderActiveTheme();
+      if (typeof window.showToast === 'function') {
+        window.showToast('テーマを変更しました', 'success');
+      }
+    } catch (e) {
+      console.error('onThemeCardClick エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【ページ再訪問時】接続状態を再ロード
+  // BottomNav・SideNav の「設定」クリックで発火
+  // =============================================
+  function onEnterPage() {
+    try {
+      loadStatus();
+      renderActiveTheme();
+    } catch (e) {
+      console.error('onEnterPage エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【初期化】DOM参照取得・イベント結線・初回ロード
+  // =============================================
+  function init() {
+    try {
+      // 接続状態行
+      elDriveIcon         = document.getElementById('st-drive-icon');
+      elDriveValue        = document.getElementById('st-drive-value');
+      elSpreadsheetIcon   = document.getElementById('st-spreadsheet-icon');
+      elSpreadsheetValue  = document.getElementById('st-spreadsheet-value');
+      elFolderValue       = document.getElementById('st-folder-value');
+      elCountValue        = document.getElementById('st-count-value');
+
+      // アプリ情報
+      elVersion           = document.getElementById('st-version');
+
+      // ボタン
+      elRecheck           = document.getElementById('st-recheck');
+      elResetup           = document.getElementById('st-resetup');
+
+      // アコーディオン
+      elHelpHeads         = document.querySelectorAll('.st-help-head');
+
+      // テーマカード
+      elThemeCards        = document.querySelectorAll('.st-theme-card');
+
+      // イベント結線
+      elRecheck.addEventListener('click', onRecheck);
+      elResetup.addEventListener('click', onResetup);
+      for (var i = 0; i < elHelpHeads.length; i++) {
+        elHelpHeads[i].addEventListener('click', onAccordionClick);
+      }
+      for (var k = 0; k < elThemeCards.length; k++) {
+        elThemeCards[k].addEventListener('click', onThemeCardClick);
+      }
+
+      // BottomNav・SideNav の「設定」クリックで再ロード
+      var settingsBtns = document.querySelectorAll('[data-nav-page="settings"]');
+      for (var j = 0; j < settingsBtns.length; j++) {
+        settingsBtns[j].addEventListener('click', onEnterPage);
+      }
+
+      // 起動時にテーマカードのチェックを反映
+      renderActiveTheme();
+
+      // 初回データロード
+      loadStatus();
+    } catch (e) {
+      console.error('settings.html init エラー: ' + e);
+    }
+  }
+
+  // DOM準備完了後に初期化
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>

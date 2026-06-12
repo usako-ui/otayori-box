@@ -1,0 +1,426 @@
+<style>
+/* =============================================
+   【css.html】共通スタイル（UI刷新版）
+   ・大人スタイリッシュ：ダークネイビーNav + クリーム白背景 + オレンジアクセント
+   ・カラー/タイポ/形状はCSS変数で一元管理
+   ・スマホ→タブレット→PC のレスポンシブ対応
+   ・絵文字使用禁止・Lucide Iconsで統一
+============================================= */
+
+/* ---- CSS変数（カラーパレット・フォント・形状） ----
+   コンセプト：アメリカンポップ × 大人ママ × スタイリッシュ
+   ・Primary: ロイヤルブルー（ナビ・見出し・ナビゲーション）
+   ・Secondary: オレンジ（CTAボタン・登録FAB）
+   ・Accent: ピンク（ピン留め・特別な強調）
+   ・Neutral: 暖かいオフホワイト
+============================================= */
+:root {
+  /* 役割ベースのカラーロール（メイン） */
+  --color-primary:    #2E55FF;  /* ロイヤルブルー（Nav・見出し・主役） */
+  --color-primary-soft:rgba(46,85,255,.10);
+  --color-secondary:  #FF6B35;  /* オレンジ（CTA・登録FAB・行動喚起） */
+  --color-secondary-soft:rgba(255,107,53,.10);
+  --color-accent:     #FF4D8F;  /* ピンク（ピン留め・お気に入り強調） */
+  --color-accent-soft:rgba(255,77,143,.10);
+
+  --color-nav:        #263A63;  /* Nav背景：大人ネイビー（落ち着き×洗練×信頼感） */
+  --color-nav-hover:  #314A7D;  /* Nav項目ホバー：少し明るめネイビー */
+  --color-nav-active: #3A5791;  /* Nav項目アクティブ：さらに明るいネイビー */
+  --color-background: #FFF8F0;  /* 暖かいオフホワイト（ページ背景） */
+  --color-surface:    #FFFFFF;  /* カード背景 */
+  --color-text:       #1F2333;  /* テキスト（やや柔らかい濃紺） */
+  --color-text-muted: #7B7F8E;  /* サブテキスト */
+  --color-border:     #F0EAE0;  /* ボーダー（暖色系） */
+
+  /* 子どもバッジ用 */
+  --color-accent-boy: #2E55FF;  /* 男の子バッジ：Primary連動 */
+  --color-accent-girl:#FF4D8F;  /* 女の子バッジ：Accent連動 */
+
+  /* 互換用：旧変数を残置 */
+  --color-warning:    #FFCA3A;
+  --color-muted:      #7B7F8E;
+  --color-surface-alt:#FAFAFA;
+
+  /* フォント */
+  --font-heading: 'Poppins', 'Noto Sans JP', sans-serif;
+  --font-body:    'Noto Sans JP', sans-serif;
+
+  /* 形状（カード角丸強化・シャドウ柔軟化） */
+  --radius:        22px;   /* カード（少し強める） */
+  --radius-sm:     14px;   /* ボタン */
+  --radius-pill:   999px;
+  --shadow-card:   0 4px 20px rgba(46,85,255,.06);
+  --shadow-card-hover: 0 10px 30px rgba(46,85,255,.12);
+  --shadow-cta:    0 8px 20px rgba(255,107,53,.35);
+  --shadow-accent: 0 6px 16px rgba(255,77,143,.20);
+
+  /* レイアウト */
+  --bottom-nav-h:  72px;
+  --side-nav-w:    240px;
+  --content-max:   720px;
+}
+
+/* ---- ベース・リセット ---- */
+* { box-sizing: border-box; }
+
+html, body { margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-body);
+  font-weight: 400;
+  line-height: 1.6;
+  background: var(--color-background);
+  color: var(--color-text);
+  padding-bottom: calc(var(--bottom-nav-h) + 16px); /* 下部ナビ被り防止 */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ---- タイポグラフィ ---- */
+h1, h2, h3, h4, .heading, .num {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--color-text);
+}
+h1 { font-size: 24px; margin: 0 0 12px; }
+h2 { font-size: 18px; margin: 0 0 8px; }
+h3 { font-size: 16px; margin: 0 0 6px; }
+a { color: var(--color-secondary); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ラベル（eyebrow）：見出し上の小さなラベル用 */
+.label-eyebrow {
+  display: inline-block;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+/* ---- レイアウト ---- */
+.app-header {
+  position: sticky; top: 0; z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 20px;
+  background: var(--color-background);
+  border-bottom: 1px solid var(--color-border);
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 20px;
+  letter-spacing: -0.02em;
+  color: var(--color-text);
+}
+.app-header-bell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  pointer-events: none;
+}
+.app-header-bell i { width: 20px; height: 20px; }
+
+#app { width: 100%; }
+
+[data-page] {
+  display: none;             /* 初期は非表示。JSがshowPage()でblockに切替 */
+  padding: 16px;
+  max-width: var(--content-max);
+  margin: 0 auto;
+}
+
+/* ---- 共通：セクション見出し（左ボーダーアクセント） ---- */
+.section-heading-accent {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 16px;
+  letter-spacing: -0.02em;
+  color: var(--color-text);
+  margin: 0 0 14px;
+  padding: 4px 0 4px 12px;
+  border-left: 3px solid var(--color-primary);
+  line-height: 1.4;
+}
+
+/* ---- コンポーネント：カード ---- */
+.card {
+  background: var(--color-surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  padding: 20px;
+  margin-bottom: 14px;
+  transition: box-shadow .2s ease, transform .12s ease;
+}
+.card:hover {
+  box-shadow: var(--shadow-card-hover);
+  transform: translateY(-2px);
+}
+
+/* ---- コンポーネント：ボタン ----
+   Primary（オレンジCTA）= 主要行動ボタン
+   Secondary（ロイヤルブルー）= サブ・リンク的ボタン
+   Ghost = 白＋細ボーダー
+============================================= */
+.btn {
+  display: inline-flex;
+  align-items: center; justify-content: center; gap: 8px;
+  min-height: 52px;
+  padding: 0 22px;
+  border-radius: var(--radius-sm);
+  border: none;
+  font-family: var(--font-body);
+  font-size: 15px; font-weight: 700;
+  cursor: pointer;
+  transition: opacity .15s ease, transform .08s ease, box-shadow .2s ease;
+}
+.btn:active   { transform: scale(.98); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+/* 主役CTA：オレンジ */
+.btn-primary {
+  background: var(--color-secondary);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(255,107,53,.25);
+}
+.btn-primary:not(:disabled):hover {
+  box-shadow: var(--shadow-cta);
+  transform: translateY(-1px);
+}
+/* サブ：ロイヤルブルー */
+.btn-secondary {
+  background: var(--color-primary);
+  color: #fff;
+}
+.btn-secondary:not(:disabled):hover {
+  box-shadow: 0 8px 20px rgba(46,85,255,.30);
+  transform: translateY(-1px);
+}
+/* アクセント：ピンク（ピン留め等で利用） */
+.btn-accent {
+  background: var(--color-accent);
+  color: #fff;
+}
+.btn-accent:not(:disabled):hover {
+  box-shadow: var(--shadow-accent);
+  transform: translateY(-1px);
+}
+.btn-ghost {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+}
+.btn-ghost:not(:disabled):hover { background: #FAFAFA; }
+.btn:not(:disabled):hover { opacity: 1; }
+.btn i { width: 18px; height: 18px; }
+
+/* ---- コンポーネント：子ども名バッジ（色分け） ---- */
+.child-badge {
+  display: inline-block;
+  background: var(--color-text-muted);
+  color: #fff;
+  border-radius: var(--radius-pill);
+  padding: 3px 10px;
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+}
+.child-badge[data-child-color="boy"]  { background: var(--color-accent-boy); }
+.child-badge[data-child-color="girl"] { background: var(--color-accent-girl); }
+
+/* ---- コンポーネント：旧バッジ（互換維持） ---- */
+.badge {
+  display: inline-block;
+  background: var(--color-primary);
+  color: #fff;
+  border-radius: var(--radius-pill);
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.badge-warning   { background: var(--color-warning); color: var(--color-text); }
+.badge-secondary { background: var(--color-primary); }
+.badge-accent    { background: var(--color-accent); }
+
+/* ---- コンポーネント：トースト ---- */
+.toast {
+  position: fixed;
+  left: 50%; bottom: calc(var(--bottom-nav-h) + 16px);
+  transform: translateX(-50%) translateY(8px);
+  background: rgba(26,26,46,.92);
+  color: #fff;
+  padding: 12px 20px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s, transform .2s;
+  z-index: 1000;
+}
+.toast.is-show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ---- include() フォールバックのスタブ ---- */
+.page-stub {
+  color: var(--color-text-muted);
+  text-align: center;
+  padding: 3em 1em;
+}
+
+/* ---- ナビゲーション：ボトム（スマホ・タブレット用・ロイヤルブルー） ---- */
+.bottom-nav {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  height: var(--bottom-nav-h);
+  background: var(--color-nav);
+  border-top: none;
+  padding: 0 0 env(safe-area-inset-bottom, 0px);
+  box-shadow: 0 -8px 24px rgba(38,58,99,.22);
+  z-index: 100;
+}
+.bottom-nav button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255,255,255,.55);
+  padding: 8px 4px;
+  transition: color .15s, transform .08s ease;
+}
+.bottom-nav button:active { transform: scale(.96); }
+.bottom-nav button.is-active {
+  color: #FFFFFF;
+  font-weight: 700;
+  background: var(--color-nav-active);
+}
+.bottom-nav button i { width: 22px; height: 22px; }
+
+/* 中央CTA：登録ボタン（オレンジ円・浮き上がり）
+   align-self: start + margin-top: -16px でナビ上端から16px上に突出 */
+.bottom-nav .bottom-nav-center {
+  position: relative;
+  align-self: start;
+  justify-self: center;
+  width: 56px;
+  height: 56px;
+  margin-top: -16px;
+  border-radius: 50%;
+  background: var(--color-secondary);
+  color: #FFFFFF;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+  box-shadow: var(--shadow-cta);
+  font-size: 0;
+  border: 4px solid var(--color-background);  /* 暖色背景と同色のリングでよりFAB感 */
+}
+.bottom-nav .bottom-nav-center.is-active,
+.bottom-nav .bottom-nav-center {
+  background: var(--color-secondary);
+  color: #FFFFFF;
+}
+.bottom-nav .bottom-nav-center i { width: 24px; height: 24px; }
+.bottom-nav .bottom-nav-center:active { transform: scale(.94); }
+
+/* ---- ナビゲーション：サイド（PC用・ダークネイビー） ---- */
+.side-nav { display: none; }     /* スマホ・タブレットでは非表示 */
+
+/* ---- レスポンシブ：タブレット（768px+） ---- */
+@media (min-width: 768px) {
+  [data-page] { padding: 24px; }
+  .bottom-nav button { font-size: 12px; }
+}
+
+/* ---- レスポンシブ：PC（1024px+） ---- */
+@media (min-width: 1024px) {
+  /* ボトムナビを隠してサイドナビへ切替 */
+  .bottom-nav { display: none; }
+  body { padding-bottom: 24px; padding-left: var(--side-nav-w); }
+
+  .side-nav {
+    display: flex; flex-direction: column;
+    position: fixed; top: 0; left: 0; bottom: 0;
+    width: var(--side-nav-w);
+    background: var(--color-nav);
+    border-right: none;
+    padding: 72px 0 16px;
+    z-index: 90;
+  }
+  .side-nav button {
+    background: none;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 24px;
+    text-align: left;
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-weight: 600;
+    color: rgba(255,255,255,.4);
+    transition: background .15s, color .15s;
+  }
+  .side-nav button:hover {
+    background: var(--color-nav-hover);
+    color: #FFFFFF;
+  }
+  .side-nav button.is-active {
+    color: #FFFFFF;
+    background: var(--color-nav-active);
+    border-right: 3px solid var(--color-secondary);
+    font-weight: 700;
+  }
+  .side-nav button i { width: 20px; height: 20px; }
+
+  /* ヘッダーをサイドナビ分だけ右にオフセット */
+  .app-header { left: var(--side-nav-w); right: 0; }
+}
+
+/* ---- カラースウォッチ（子どもバッジカラー選択用・T-32） ----
+   ・children.html の詳細カード内で10色を横並びで表示
+   ・color は --swatch-color CSS変数で受け取る（インラインスタイル禁止）
+   ・実領域はタップ確保のため疑似要素で 44px 相当に拡張
+============================================= */
+.color-swatch {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background: var(--swatch-color, #ccc);
+  cursor: pointer;
+  padding: 0;
+  position: relative;
+  transition: transform .12s ease, box-shadow .15s ease;
+}
+.color-swatch::after {
+  content: '';
+  position: absolute;
+  inset: -6px;   /* 32px + (6px*2) = 44px のタップ領域 */
+}
+.color-swatch:hover { transform: scale(1.08); }
+.color-swatch.selected {
+  border-color: #fff;
+  box-shadow: 0 0 0 2px var(--swatch-color, #ccc), 0 4px 10px rgba(0,0,0,.15);
+  transform: scale(1.1);
+}
+.color-swatch:disabled { opacity: .5; cursor: not-allowed; }
+</style>

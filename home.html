@@ -1,0 +1,1065 @@
+<!-- =============================================
+     【home.html】ホーム画面（T-14）
+     対応機能：F-06 ホーム画面
+     ・アプリ名 + サブテキストのヒーローヘッダー
+     ・登録済み子どもをカード形式で表示（タップ→一覧画面＋該当タブ選択）
+     ・子ども0人時：空状態（子ども登録ボタン）
+     ・クイックアクション：おたよりを登録する
+     ・全 google.script.run は callGAS 経由（withFailureHandler 自動付与）
+     ・スマホ／タブレット／PC のレスポンシブ対応（1/2/3カラム）
+============================================= -->
+
+<style>
+  /* ---- ルート ---- */
+  .hm-root {
+    width: 100%;
+    margin: 0 auto;
+    overflow-x: hidden;
+  }
+
+  /* ---- ヒーローヘッダー ---- */
+  .hm-hero {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin: 0 0 28px;
+    padding: 4px 0;
+  }
+  .hm-hero-body { flex: 1; min-width: 0; }
+  .hm-hero-title {
+    font-family: var(--font-heading);
+    font-weight: 800;
+    font-size: 28px;
+    letter-spacing: -0.02em;
+    color: var(--color-text);
+    margin: 0 0 6px;
+  }
+  .hm-hero-sub {
+    color: var(--color-text-muted);
+    font-size: 13px;
+    margin: 0;
+    line-height: 1.5;
+  }
+  .hm-hero-bell {
+    flex: 0 0 44px;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: var(--color-surface);
+    box-shadow: var(--shadow-card);
+    color: var(--color-text-muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+  }
+  .hm-hero-bell i { width: 20px; height: 20px; }
+
+  /* ---- セクション ---- */
+  .hm-section {
+    margin: 0 0 28px;
+  }
+  .hm-section-title {
+    font-family: var(--font-heading);
+    font-weight: 800;
+    font-size: 16px;
+    letter-spacing: -0.02em;
+    color: var(--color-text);
+    margin: 0 0 14px;
+    padding: 4px 0 4px 12px;
+    border-left: 3px solid var(--color-primary);
+    line-height: 1.4;
+  }
+
+  /* ---- 子どもカードグリッド ---- */
+  .hm-children-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  /* ---- 子どもカード ---- */
+  .hm-child-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    width: 100%;
+    background: var(--color-surface);
+    border: none;
+    border-radius: 20px;
+    box-shadow: 0 2px 16px rgba(0,0,0,.06);
+    padding: 18px 20px;
+    cursor: pointer;
+    text-align: left;
+    font-family: var(--font-body);
+    color: var(--color-text);
+    transition: box-shadow .15s ease, transform .08s ease;
+  }
+  .hm-child-card:hover {
+    box-shadow: 0 6px 20px rgba(0,0,0,.08);
+    transform: translateY(-1px);
+  }
+  .hm-child-card:active {
+    transform: scale(.98);
+  }
+
+  .hm-child-avatar {
+    flex: 0 0 56px;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    /* 子ども別カラー：枠ボーダーに --child-color を反映（T-32） */
+    border: 2px solid var(--child-color, #4D96FF);
+  }
+  .hm-child-avatar i { width: 28px; height: 28px; }
+  .hm-child-avatar-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .hm-child-body {
+    flex: 1;
+    min-width: 0;
+  }
+  .hm-child-name {
+    font-family: var(--font-heading);
+    font-size: 17px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    color: var(--color-text);
+    line-height: 1.3;
+    word-break: break-word;
+  }
+  .hm-child-date {
+    font-size: 12px;
+    color: var(--color-text-muted);
+    margin-top: 4px;
+  }
+
+  .hm-child-action {
+    flex: 0 0 auto;
+    color: #BDBDBD;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .hm-child-action i { width: 20px; height: 20px; }
+
+  /* ---- 空状態（子ども0人） ---- */
+  .hm-empty {
+    text-align: center;
+    padding: 32px 16px;
+    background: var(--color-surface);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-card);
+  }
+  .hm-empty[hidden] { display: none; }
+  .hm-empty-icon {
+    width: 40px;
+    height: 40px;
+    color: #BDBDBD;
+    margin: 0 auto 10px;
+    display: block;
+  }
+  .hm-empty-msg {
+    font-size: 14px;
+    color: #666;
+    margin: 0 0 16px;
+    line-height: 1.6;
+  }
+  .hm-empty .btn { display: inline-flex; }
+
+  /* ---- ローディング ---- */
+  .hm-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: #999;
+    font-size: 13px;
+    padding: 24px 0;
+  }
+  .hm-loading[hidden] { display: none; }
+  .hm-loading i { width: 20px; height: 20px; }
+
+  .hm-spin {
+    animation: hm-spin 1s linear infinite;
+  }
+  @keyframes hm-spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+
+  /* ---- 最近のおたよりセクション（横スクロール） ---- */
+  .hm-recents-section[hidden] { display: none; }
+
+  .hm-recents-scroll {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 4px 0 8px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+  .hm-recents-scroll[hidden] { display: none; }
+  .hm-recents-scroll::-webkit-scrollbar { height: 6px; }
+  .hm-recents-scroll::-webkit-scrollbar-thumb {
+    background: rgba(0,0,0,.1);
+    border-radius: 3px;
+  }
+
+  .hm-recent-item {
+    flex: 0 0 auto;
+    width: 96px;
+    background: transparent;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    text-align: left;
+    font-family: var(--font-body);
+    color: var(--color-text);
+    transition: transform .08s ease;
+  }
+  .hm-recent-item:active { transform: scale(.97); }
+
+  .hm-recent-thumb-wrap {
+    position: relative;
+    width: 96px;
+    height: 96px;
+    border-radius: 16px;
+    background: #F5F5F5;
+    box-shadow: 0 2px 16px rgba(0,0,0,.06);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: box-shadow .15s ease, transform .08s ease;
+  }
+  .hm-recent-item:hover .hm-recent-thumb-wrap {
+    box-shadow: 0 6px 20px rgba(0,0,0,.08);
+    transform: translateY(-1px);
+  }
+
+  .hm-recent-thumb {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .hm-recent-thumb[hidden] { display: none; }
+
+  .hm-recent-thumb-loading,
+  .hm-recent-thumb-fallback {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #999;
+  }
+  .hm-recent-thumb-loading[hidden],
+  .hm-recent-thumb-fallback[hidden] { display: none; }
+  .hm-recent-thumb-loading i,
+  .hm-recent-thumb-fallback i { width: 22px; height: 22px; }
+
+  /* ---- PDF サムネ（file-text アイコン＋PDFラベル・薄オレンジ背景） ---- */
+  .hm-recent-thumb-pdf {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    background: #FFF3E0;
+    color: var(--color-primary);
+  }
+  .hm-recent-thumb-pdf i { width: 28px; height: 28px; }
+  .hm-recent-thumb-pdf-label {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: .08em;
+    color: var(--color-primary);
+  }
+  /* canvas描画完了後：アイコンとラベルを隠す（インラインスタイル禁止のためクラス制御） */
+  .hm-recent-thumb-pdf.is-rendered i,
+  .hm-recent-thumb-pdf.is-rendered .hm-recent-thumb-pdf-label { display: none; }
+  /* PDF 1ページ目描画用 canvas（薄オレンジ枠の中央に表示） */
+  .hm-recent-thumb-canvas {
+    display: block;
+    max-width: 100%;
+    max-height: 100%;
+    background: #fff;
+  }
+  .hm-recent-thumb-canvas[hidden] { display: none; }
+
+  .hm-recent-name {
+    display: inline-block;
+    margin-top: 8px;
+    padding: 3px 10px;
+    border-radius: var(--radius-pill);
+    /* 子ども別カラー：背景に --child-color を反映（T-32） */
+    background: var(--child-color, var(--color-text-muted));
+    color: #fff;
+    font-family: var(--font-body);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    line-height: 1.4;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .hm-recent-ym {
+    font-size: 11px;
+    color: var(--color-text-muted);
+    margin-top: 4px;
+  }
+
+  /* ---- クイックアクションボタン ---- */
+  .hm-quick-btn {
+    width: 100%;
+    min-height: 52px;
+    font-size: 15px;
+  }
+
+  /* ---- レスポンシブ：タブレット（768px+） ---- */
+  @media (min-width: 768px) {
+    .hm-hero-title { font-size: 24px; }
+    .hm-hero-sub   { font-size: 14px; }
+    .hm-children-grid {
+      grid-template-columns: repeat(2, 1fr);
+      gap: 14px;
+    }
+    .hm-recent-item,
+    .hm-recent-thumb-wrap {
+      width: 110px;
+    }
+    .hm-recent-thumb-wrap { height: 110px; }
+  }
+
+  /* ---- レスポンシブ：PC（1024px+） ---- */
+  @media (min-width: 1024px) {
+    .hm-children-grid {
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+    .hm-quick-btn {
+      max-width: 400px;
+      margin: 0 auto;
+      display: flex;
+    }
+  }
+</style>
+
+<div class="hm-root">
+  <!-- ヒーローヘッダー -->
+  <header class="hm-hero">
+    <div class="hm-hero-body">
+      <h1 class="hm-hero-title">おたよりBOX</h1>
+      <p class="hm-hero-sub">子どものおたよりを3クリックで保存</p>
+    </div>
+    <span class="hm-hero-bell" aria-hidden="true"><i data-lucide="bell"></i></span>
+  </header>
+
+  <!-- 子ども一覧セクション -->
+  <section class="hm-section">
+    <h2 class="hm-section-title">お子さま</h2>
+
+    <!-- 初期ローディング -->
+    <div class="hm-loading" id="hm-loading">
+      <i data-lucide="loader-2" class="hm-spin"></i>読み込み中...
+    </div>
+
+    <!-- カードグリッド（JSで描画） -->
+    <div class="hm-children-grid" id="hm-children-grid"></div>
+
+    <!-- 子ども0人時：空状態 -->
+    <div class="hm-empty" id="hm-empty" hidden>
+      <i data-lucide="users" class="hm-empty-icon"></i>
+      <p class="hm-empty-msg">まだ子どもが登録されていません</p>
+      <button type="button" class="btn btn-primary" id="hm-go-children">
+        <i data-lucide="user-plus"></i><span>子どもを登録する</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- 最近のおたよりセクション（0件時は hidden 化） -->
+  <section class="hm-section hm-recents-section" id="hm-recents-section" hidden>
+    <h2 class="hm-section-title">最近のおたより</h2>
+
+    <!-- 取得中スピナー -->
+    <div class="hm-loading" id="hm-recents-loading">
+      <i data-lucide="loader-2" class="hm-spin"></i>読み込み中...
+    </div>
+
+    <!-- 横スクロール領域（JSで描画） -->
+    <div class="hm-recents-scroll" id="hm-recents-scroll" hidden></div>
+  </section>
+
+  <!-- クイックアクション -->
+  <section class="hm-section">
+    <button type="button" class="btn btn-primary hm-quick-btn" id="hm-go-upload">
+      <i data-lucide="camera"></i><span>おたよりを登録する</span>
+    </button>
+  </section>
+</div>
+
+<script>
+(function() {
+  // =============================================
+  // 【ホーム画面】子ども一覧カード・クイックアクション
+  // 同梱SPAのため即時実行関数で名前空間を閉じる
+  // =============================================
+
+  // ---- 状態 ----
+  var HomePageState = {
+    children:        [],
+    childColorMap:   {},     // {childId: '#RRGGBB'} 子ども別バッジカラー（T-32）
+    loading:         false,
+    recents:         [],     // 直近5件
+    recentsLoading:  false,
+    recentsFetchQueue: [],   // 未取得画像のfileId配列（順次取得用）
+    recentsFetching: false   // 取得中フラグ（多重実行防止）
+  };
+
+  // ---- 共有画像キャッシュ（notices.html と同じ window.NoticeImageCache を参照） ----
+  // home が取得した画像を notices 側でも再利用できるよう、グローバルに1つだけ用意
+  var imageCache = (window.NoticeImageCache = window.NoticeImageCache || {});
+
+  // ---- 定数 ----
+  var RECENTS_MAX = 5;
+
+  // =============================================
+  // 【補助】子どもID→バッジカラー（T-32）
+  // childColorMap から取得。未設定時は青デフォルト
+  // =============================================
+  function getChildColor(childId) {
+    try {
+      if (!childId) return '#4D96FF';
+      return HomePageState.childColorMap[childId] || '#4D96FF';
+    } catch (e) {
+      return '#4D96FF';
+    }
+  }
+
+  // ---- DOM参照（init で確定） ----
+  var elGrid, elEmpty, elLoading, elGoChildren, elGoUpload;
+  var elRecentsSection, elRecentsLoading, elRecentsScroll;
+
+  // =============================================
+  // 【日付】「YYYY-MM-DD」→「YYYY年M月 登録」
+  // 子どもカードの登録日表示用（曜日不要・年も明示してアーカイブ感）
+  // 引数：d（'YYYY-MM-DD' 文字列）
+  // 戻り値：'YYYY年M月 登録'（不正値は空文字）
+  // =============================================
+  function formatRegisteredYearMonth(d) {
+    try {
+      if (!d) return '';
+      var parts = String(d).split('-');
+      if (parts.length < 2) return '';
+      return parts[0] + '年' + parseInt(parts[1], 10) + '月 登録';
+    } catch (e) {
+      console.error('formatRegisteredYearMonth エラー: ' + e);
+      return '';
+    }
+  }
+
+  // =============================================
+  // 【描画】子ども一覧カード
+  // children が0件 → 空状態を出す
+  // 1件以上 → カードを順次appendChild
+  // =============================================
+  function renderChildren() {
+    try {
+      elGrid.innerHTML = '';
+      elLoading.hidden = true;
+
+      var list = HomePageState.children;
+
+      // 0件 → 空状態
+      if (list.length === 0) {
+        elEmpty.hidden = false;
+        if (window.lucide) lucide.createIcons();
+        return;
+      }
+      elEmpty.hidden = true;
+
+      // カード生成
+      for (var i = 0; i < list.length; i++) {
+        elGrid.appendChild(buildChildCard(list[i]));
+      }
+
+      // 動的アイコン再描画
+      if (window.lucide) lucide.createIcons();
+    } catch (e) {
+      console.error('renderChildren エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【描画】1件分の子どもカード要素を組み立てる
+  // タップで onChildCardClick(child.id) を実行
+  // =============================================
+  function buildChildCard(child) {
+    try {
+      var card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'hm-child-card';
+      card.setAttribute('data-child-id', child.id);
+      card.setAttribute('aria-label', child.name + 'のおたよりを開く');
+      // 子ども別バッジカラーをCSS変数で渡す（T-32）
+      card.style.setProperty('--child-color', child.color || '#4D96FF');
+
+      // アバター（画像 or Lucide user-round）
+      var avatar = document.createElement('div');
+      avatar.className = 'hm-child-avatar';
+      var avatarFid = child.avatarFileId || '';
+      if (avatarFid && imageCache[avatarFid]) {
+        // キャッシュ済み → 即img
+        var avatarImg = document.createElement('img');
+        avatarImg.className = 'hm-child-avatar-img';
+        avatarImg.src = imageCache[avatarFid];
+        avatarImg.alt = (child.name || '') + 'のアバター';
+        avatar.appendChild(avatarImg);
+      } else if (avatarFid) {
+        // 未キャッシュ → プレースホルダ＋取得キュー（後で applyChildAvatarToDom で差替）
+        avatar.innerHTML = '<i data-lucide="user-round"></i>';
+        avatar.setAttribute('data-avatar-file-id', avatarFid);
+        enqueueRecentImage(avatarFid);
+      } else {
+        avatar.innerHTML = '<i data-lucide="user-round"></i>';
+      }
+      card.appendChild(avatar);
+
+      // 子ども名＋登録日
+      var body = document.createElement('div');
+      body.className = 'hm-child-body';
+
+      var nameEl = document.createElement('div');
+      nameEl.className = 'hm-child-name';
+      nameEl.textContent = child.name || '';
+      body.appendChild(nameEl);
+
+      var dateEl = document.createElement('div');
+      dateEl.className = 'hm-child-date';
+      dateEl.textContent = formatRegisteredYearMonth(child.createdDate);
+      body.appendChild(dateEl);
+
+      card.appendChild(body);
+
+      // 右端の矢印アイコン
+      var action = document.createElement('div');
+      action.className = 'hm-child-action';
+      action.innerHTML = '<i data-lucide="chevron-right"></i>';
+      card.appendChild(action);
+
+      // タップで一覧画面遷移＋該当子どもタブ選択
+      card.addEventListener('click', function() {
+        onChildCardClick(child.id);
+      });
+
+      return card;
+    } catch (e) {
+      console.error('buildChildCard エラー: ' + e);
+      return document.createElement('div');
+    }
+  }
+
+  // =============================================
+  // 【イベント】子どもカードクリック
+  //   1) showPage('list') で一覧画面へ切替
+  //   2) notices.html 公開関数 openNoticesForChild(childId) で該当タブ選択＋再描画
+  // notices.html 未ロード時は1)のみ実行し「すべて」表示にフォールバック
+  // =============================================
+  function onChildCardClick(childId) {
+    try {
+      if (typeof window.showPage === 'function') {
+        window.showPage('list');
+      }
+      if (typeof window.openNoticesForChild === 'function') {
+        window.openNoticesForChild(childId);
+      }
+    } catch (e) {
+      console.error('onChildCardClick エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【補助】属性セレクタ内で使うため fileId をエスケープ
+  // =============================================
+  function cssAttrEscape(s) {
+    try {
+      return String(s).replace(/(["\\])/g, '\\$1');
+    } catch (e) {
+      return '';
+    }
+  }
+
+  // =============================================
+  // 【描画】最近のおたよりセクション
+  // 0件 → セクション hidden 化／1件以上 → サムネ横並び描画
+  // =============================================
+  function renderRecents() {
+    try {
+      var list = HomePageState.recents;
+      elRecentsLoading.hidden = true;
+
+      // 0件 → セクション全体を非表示
+      if (!list || list.length === 0) {
+        elRecentsScroll.hidden = true;
+        elRecentsScroll.innerHTML = '';
+        elRecentsSection.hidden = true;
+        return;
+      }
+
+      elRecentsSection.hidden = false;
+      elRecentsScroll.hidden = false;
+      elRecentsScroll.innerHTML = '';
+
+      for (var i = 0; i < list.length; i++) {
+        elRecentsScroll.appendChild(buildRecentItem(list[i]));
+      }
+
+      if (window.lucide) lucide.createIcons();
+    } catch (e) {
+      console.error('renderRecents エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【PDFサムネ描画】PDF base64 を tile 内に canvas 描画
+  // 既に canvas があれば再描画しない（重複防止）
+  // 失敗時は file-text アイコン表示のまま（is-rendered は付けない）
+  // =============================================
+  function renderRecentPdfThumbIntoTile(tile, dataUrl) {
+    try {
+      if (!tile) return;
+      if (tile.querySelector('canvas.hm-recent-thumb-canvas')) return;
+
+      var canvas = document.createElement('canvas');
+      canvas.className = 'hm-recent-thumb-canvas';
+      canvas.hidden = true;
+      tile.appendChild(canvas);
+
+      if (typeof window.renderPdfToCanvas !== 'function') {
+        if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
+        return;
+      }
+      window.renderPdfToCanvas(dataUrl, canvas, function(err) {
+        if (err) {
+          if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
+          return;
+        }
+        canvas.hidden = false;
+        tile.classList.add('is-rendered');
+      });
+    } catch (e) {
+      console.error('renderRecentPdfThumbIntoTile エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【描画】1件分の最近サムネ要素を組み立てる
+  // 画像はキャッシュにあれば即時表示・未取得なら順次取得キューへ
+  // =============================================
+  function buildRecentItem(notice) {
+    try {
+      var item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'hm-recent-item';
+      item.setAttribute('data-child-id', notice.childId || '');
+      item.setAttribute('aria-label', (notice.childName || '') + 'のおたより');
+      // 子ども別バッジカラーをCSS変数で渡す（T-32）
+      item.style.setProperty('--child-color', getChildColor(notice.childId));
+
+      // サムネ枠
+      var wrap = document.createElement('div');
+      wrap.className = 'hm-recent-thumb-wrap';
+
+      if (notice.fileType === 'pdf') {
+        // PDFサムネ：まず file-text アイコン＋ラベルで即時表示（描画完了でcanvasに差替え）
+        var pdfTile = document.createElement('div');
+        pdfTile.className = 'hm-recent-thumb-pdf';
+        pdfTile.setAttribute('data-file-id', notice.fileId || '');
+        pdfTile.innerHTML = '<i data-lucide="file-text"></i><span class="hm-recent-thumb-pdf-label">PDF</span>';
+        wrap.appendChild(pdfTile);
+
+        // キャッシュ済み → 即時 canvas 描画／未取得 → enqueue
+        if (notice.fileId && imageCache[notice.fileId]) {
+          renderRecentPdfThumbIntoTile(pdfTile, imageCache[notice.fileId]);
+        } else if (notice.fileId) {
+          enqueueRecentImage(notice.fileId);
+        }
+      } else {
+        // 画像（取得後に src がセットされる）
+        var img = document.createElement('img');
+        img.className = 'hm-recent-thumb';
+        img.alt = (notice.childName || '') + 'のおたより';
+        img.setAttribute('data-file-id', notice.fileId || '');
+
+        // 読み込み中スピナー
+        var loading = document.createElement('div');
+        loading.className = 'hm-recent-thumb-loading';
+        loading.innerHTML = '<i data-lucide="loader-2" class="hm-spin"></i>';
+
+        // フォールバック
+        var fallback = document.createElement('div');
+        fallback.className = 'hm-recent-thumb-fallback';
+        fallback.hidden = true;
+        fallback.innerHTML = '<i data-lucide="image-off"></i>';
+
+        // 表示失敗時
+        img.onerror = function() {
+          img.hidden = true;
+          loading.hidden = true;
+          fallback.hidden = false;
+          if (window.lucide) lucide.createIcons();
+        };
+
+        // キャッシュ済みなら即時表示・未取得ならキュー投入
+        if (notice.fileId && imageCache[notice.fileId]) {
+          img.src = imageCache[notice.fileId];
+          loading.hidden = true;
+        } else {
+          img.hidden = true;
+          if (notice.fileId) {
+            enqueueRecentImage(notice.fileId);
+          } else {
+            loading.hidden = true;
+            fallback.hidden = false;
+          }
+        }
+
+        wrap.appendChild(img);
+        wrap.appendChild(loading);
+        wrap.appendChild(fallback);
+      }
+
+      item.appendChild(wrap);
+
+      // 子ども名
+      var nameEl = document.createElement('div');
+      nameEl.className = 'hm-recent-name';
+      nameEl.textContent = notice.childName || '';
+      item.appendChild(nameEl);
+
+      // 対象年月
+      var ymEl = document.createElement('div');
+      ymEl.className = 'hm-recent-ym';
+      ymEl.textContent = (typeof window.formatYearMonth === 'function')
+        ? window.formatYearMonth(notice.yearMonth)
+        : (notice.yearMonth || '');
+      item.appendChild(ymEl);
+
+      // タップ → 一覧画面の該当子どもタブへ
+      item.addEventListener('click', function() {
+        onChildCardClick(notice.childId);
+      });
+
+      return item;
+    } catch (e) {
+      console.error('buildRecentItem エラー: ' + e);
+      return document.createElement('div');
+    }
+  }
+
+  // =============================================
+  // 【取得キュー】fileId をキューに追加（重複・キャッシュ済みは無視）
+  // =============================================
+  function enqueueRecentImage(fileId) {
+    try {
+      if (!fileId) return;
+      if (imageCache[fileId]) return;
+      if (HomePageState.recentsFetchQueue.indexOf(fileId) !== -1) return;
+      HomePageState.recentsFetchQueue.push(fileId);
+      processRecentQueue();
+    } catch (e) {
+      console.error('enqueueRecentImage エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【取得キュー】1件ずつシリアル取得（GAS 負荷抑制）
+  // 完了の度にキャッシュへ反映・該当 DOM へ src セット
+  // =============================================
+  function processRecentQueue() {
+    try {
+      if (HomePageState.recentsFetching) return;
+      if (HomePageState.recentsFetchQueue.length === 0) return;
+
+      var fileId = HomePageState.recentsFetchQueue.shift();
+
+      // キャッシュ済みになっていればスキップして次へ
+      if (imageCache[fileId]) {
+        processRecentQueue();
+        return;
+      }
+
+      HomePageState.recentsFetching = true;
+      callGAS('getNoticeImage', [fileId], function(dataUrl) {
+        try {
+          imageCache[fileId] = dataUrl;
+          applyRecentImageToDom(fileId, dataUrl);
+          applyChildAvatarToDom(fileId, dataUrl);
+        } catch (e2) {
+          console.error('processRecentQueue success内エラー: ' + e2);
+        } finally {
+          HomePageState.recentsFetching = false;
+          processRecentQueue();
+        }
+      }, function(err) {
+        try {
+          markRecentImageFailedInDom(fileId);
+        } catch (e3) {
+          console.error('processRecentQueue failure内エラー: ' + e3);
+        } finally {
+          HomePageState.recentsFetching = false;
+          processRecentQueue();
+        }
+      });
+    } catch (e) {
+      console.error('processRecentQueue エラー: ' + e);
+      HomePageState.recentsFetching = false;
+    }
+  }
+
+  // =============================================
+  // 【DOM反映】取得済み画像を該当サムネにセット
+  // =============================================
+  function applyRecentImageToDom(fileId, dataUrl) {
+    try {
+      // 該当 fileId の fileType を recents から逆引き
+      var fileType = '';
+      var list = HomePageState.recents || [];
+      for (var li = 0; li < list.length; li++) {
+        if (list[li].fileId === fileId) {
+          fileType = list[li].fileType;
+          break;
+        }
+      }
+      if (fileType === 'pdf') {
+        // PDF：file-text タイルを探して canvas に1ページ目を描画
+        var pdfSel = '.hm-recent-thumb-pdf[data-file-id="' + cssAttrEscape(fileId) + '"]';
+        var tiles = document.querySelectorAll(pdfSel);
+        for (var ti = 0; ti < tiles.length; ti++) {
+          renderRecentPdfThumbIntoTile(tiles[ti], dataUrl);
+        }
+        return;
+      }
+
+      var sel = 'img.hm-recent-thumb[data-file-id="' + cssAttrEscape(fileId) + '"]';
+      var imgs = document.querySelectorAll(sel);
+      for (var i = 0; i < imgs.length; i++) {
+        imgs[i].src = dataUrl;
+        imgs[i].hidden = false;
+        var wrap = imgs[i].parentNode;
+        if (wrap) {
+          var loading = wrap.querySelector('.hm-recent-thumb-loading');
+          if (loading) loading.hidden = true;
+        }
+      }
+    } catch (e) {
+      console.error('applyRecentImageToDom エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【DOM反映】子どもアバター：取得済み画像を該当カードに反映
+  // data-avatar-file-id 属性を持つ .hm-child-avatar の中身を <img> に置換
+  // =============================================
+  function applyChildAvatarToDom(fileId, dataUrl) {
+    try {
+      var sel = '.hm-child-avatar[data-avatar-file-id="' + cssAttrEscape(fileId) + '"]';
+      var avatars = document.querySelectorAll(sel);
+      for (var i = 0; i < avatars.length; i++) {
+        var av = avatars[i];
+        av.innerHTML = '';
+        var img = document.createElement('img');
+        img.className = 'hm-child-avatar-img';
+        img.alt = 'アバター';
+        img.src = dataUrl;
+        av.appendChild(img);
+      }
+    } catch (e) {
+      console.error('applyChildAvatarToDom エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【DOM反映】取得失敗：該当サムネをフォールバック表示
+  // =============================================
+  function markRecentImageFailedInDom(fileId) {
+    try {
+      var sel = 'img.hm-recent-thumb[data-file-id="' + cssAttrEscape(fileId) + '"]';
+      var imgs = document.querySelectorAll(sel);
+      for (var i = 0; i < imgs.length; i++) {
+        var wrap = imgs[i].parentNode;
+        if (!wrap) continue;
+        var loading = wrap.querySelector('.hm-recent-thumb-loading');
+        var fallback = wrap.querySelector('.hm-recent-thumb-fallback');
+        if (loading) loading.hidden = true;
+        if (fallback) fallback.hidden = false;
+      }
+      if (window.lucide) lucide.createIcons();
+    } catch (e) {
+      console.error('markRecentImageFailedInDom エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【ロード】最近のおたより（全件取得 → 先頭5件のみ採用）
+  // =============================================
+  function loadRecents() {
+    try {
+      if (HomePageState.recentsLoading) return;
+      HomePageState.recentsLoading = true;
+
+      // 旧キューをクリア（取得中の1件は完了まで走る・新一覧の上から再開）
+      HomePageState.recentsFetchQueue = [];
+
+      // ローディング表示・前回描画クリア
+      elRecentsSection.hidden = false;
+      elRecentsLoading.hidden = false;
+      elRecentsScroll.hidden = true;
+      elRecentsScroll.innerHTML = '';
+
+      callGAS('getNotices', [null], function(result) {
+        try {
+          var list = (result || []).slice(0, RECENTS_MAX);
+          HomePageState.recents = list;
+          renderRecents();
+        } catch (e2) {
+          console.error('loadRecents success内エラー: ' + e2);
+        } finally {
+          HomePageState.recentsLoading = false;
+        }
+      }, function(err) {
+        HomePageState.recentsLoading = false;
+        elRecentsLoading.hidden = true;
+        elRecentsScroll.hidden = true;
+        elRecentsSection.hidden = true;
+        showToast('最近のおたよりの取得に失敗しました', 'error');
+      });
+    } catch (e) {
+      console.error('loadRecents エラー: ' + e);
+      HomePageState.recentsLoading = false;
+    }
+  }
+
+  // =============================================
+  // 【ロード】子ども一覧取得
+  // =============================================
+  function loadChildren() {
+    try {
+      if (HomePageState.loading) return;
+      HomePageState.loading = true;
+
+      // ローディング表示・他は隠す
+      elLoading.hidden = false;
+      elEmpty.hidden   = true;
+      elGrid.innerHTML = '';
+
+      callGAS('getChildren', [], function(result) {
+        try {
+          HomePageState.children = result || [];
+          // childColorMap を再構築（{childId: color}）（T-32）
+          HomePageState.childColorMap = {};
+          for (var ci = 0; ci < HomePageState.children.length; ci++) {
+            var c = HomePageState.children[ci];
+            if (c && c.id) {
+              HomePageState.childColorMap[c.id] = c.color || '#4D96FF';
+            }
+          }
+          renderChildren();
+          // 最近のおたよりが先に描画されていた場合、color が後から判明したので再描画
+          if (HomePageState.recents && HomePageState.recents.length > 0) {
+            renderRecents();
+          }
+        } catch (e2) {
+          console.error('loadChildren success内エラー: ' + e2);
+        } finally {
+          HomePageState.loading = false;
+        }
+      }, function(err) {
+        HomePageState.loading = false;
+        elLoading.hidden = true;
+        showToast('子ども一覧の取得に失敗しました', 'error');
+      });
+    } catch (e) {
+      console.error('loadChildren エラー: ' + e);
+      HomePageState.loading = false;
+    }
+  }
+
+  // =============================================
+  // 【ページ再訪問時】子ども一覧を再ロード
+  // BottomNav・SideNav の「ホーム」クリックで発火
+  // =============================================
+  function onEnterPage() {
+    try {
+      loadChildren();
+      loadRecents();
+    } catch (e) {
+      console.error('onEnterPage エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【初期化】DOM参照取得・イベント結線・初回ロード
+  // =============================================
+  function init() {
+    try {
+      elGrid       = document.getElementById('hm-children-grid');
+      elEmpty      = document.getElementById('hm-empty');
+      elLoading    = document.getElementById('hm-loading');
+      elGoChildren = document.getElementById('hm-go-children');
+      elGoUpload   = document.getElementById('hm-go-upload');
+
+      // 最近のおたよりセクション
+      elRecentsSection = document.getElementById('hm-recents-section');
+      elRecentsLoading = document.getElementById('hm-recents-loading');
+      elRecentsScroll  = document.getElementById('hm-recents-scroll');
+
+      // 空状態ボタン・クイックアクション
+      elGoChildren.addEventListener('click', function() {
+        if (typeof window.showPage === 'function') window.showPage('children');
+      });
+      elGoUpload.addEventListener('click', function() {
+        if (typeof window.showPage === 'function') window.showPage('upload');
+      });
+
+      // BottomNav・SideNav の「ホーム」クリックで再ロード
+      var homeBtns = document.querySelectorAll('[data-nav-page="home"]');
+      for (var j = 0; j < homeBtns.length; j++) {
+        homeBtns[j].addEventListener('click', onEnterPage);
+      }
+
+      // 初回データロード（子ども一覧と最近のおたよりを並列実行）
+      loadChildren();
+      loadRecents();
+    } catch (e) {
+      console.error('home.html init エラー: ' + e);
+    }
+  }
+
+  // DOM準備完了後に初期化
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>

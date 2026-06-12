@@ -1,0 +1,464 @@
+<!-- =============================================
+     【js.html】共通フロントエンドJS（T-18）
+     全画面で共有する関数群を集約：
+     ・日付フォーマット（3関数）
+     ・ページ切替（showPage）
+     ・トースト通知（showToast）
+     ・ローディング制御（showLoading / hideLoading）
+     ・google.script.run ラッパー（callGAS）
+     ・モーダル制御（openModal / closeModal）
+     ・初期化（initialPage 表示・ナビ結線・Lucide描画）
+     全関数 try-catch・var/function スタイル統一
+============================================= -->
+
+<script>
+(function() {
+  // =============================================
+  // 【定数】曜日・トースト表示時間・トースト色
+  // =============================================
+  var WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
+  var TOAST_DURATION = 3000;
+  var TOAST_COLORS = {
+    success: '#8AC926',  // --color-accent
+    error:   '#E53935',
+    info:    '#1982C4'   // --color-secondary
+  };
+
+  // =============================================
+  // 【日付】「2026-06」→「2026年6月」
+  // 引数：ym（'YYYY-MM' 文字列）
+  // 戻り値：'YYYY年M月'（不正値は空文字）
+  // =============================================
+  function formatYearMonth(ym) {
+    try {
+      if (!ym) return '';
+      var parts = String(ym).split('-');
+      if (parts.length < 2) return '';
+      return parts[0] + '年' + parseInt(parts[1], 10) + '月';
+    } catch (e) {
+      console.error('formatYearMonth エラー: ' + e);
+      return '';
+    }
+  }
+
+  // =============================================
+  // 【日付】「2026-06-01 12:00:00」→「6月1日(日) 12:00」
+  // 引数：dt（'YYYY-MM-DD HH:mm:ss' 文字列）
+  // 戻り値：'M月D日(曜) HH:mm'（不正値は空文字）
+  // =============================================
+  function formatDateTime(dt) {
+    try {
+      if (!dt) return '';
+      var parts = String(dt).split(' ');
+      if (parts.length < 2) return '';
+      var dateParts = parts[0].split('-');
+      var timeParts = parts[1].split(':');
+      if (dateParts.length < 3 || timeParts.length < 2) return '';
+      var dateObj = new Date(
+        parseInt(dateParts[0], 10),
+        parseInt(dateParts[1], 10) - 1,
+        parseInt(dateParts[2], 10)
+      );
+      var weekday = WEEKDAYS[dateObj.getDay()];
+      return parseInt(dateParts[1], 10) + '月' +
+             parseInt(dateParts[2], 10) + '日(' + weekday + ') ' +
+             timeParts[0] + ':' + timeParts[1];
+    } catch (e) {
+      console.error('formatDateTime エラー: ' + e);
+      return '';
+    }
+  }
+
+  // =============================================
+  // 【日付】「2026-06-15」→「6月15日(月)」
+  // 引数：d（'YYYY-MM-DD' 文字列）
+  // 戻り値：'M月D日(曜)'（不正値は空文字）
+  // =============================================
+  function formatDate(d) {
+    try {
+      if (!d) return '';
+      var dateParts = String(d).split('-');
+      if (dateParts.length < 3) return '';
+      var dateObj = new Date(
+        parseInt(dateParts[0], 10),
+        parseInt(dateParts[1], 10) - 1,
+        parseInt(dateParts[2], 10)
+      );
+      var weekday = WEEKDAYS[dateObj.getDay()];
+      return parseInt(dateParts[1], 10) + '月' +
+             parseInt(dateParts[2], 10) + '日(' + weekday + ')';
+    } catch (e) {
+      console.error('formatDate エラー: ' + e);
+      return '';
+    }
+  }
+
+  // =============================================
+  // 【ページ切替】[data-page] の display を切替・[data-nav-page] の is-active を同期
+  // URLの ?page=xxx は同期しない（GAS WebApp仕様）
+  // 引数：pageId（'home' | 'list' | 'upload' | 'children' | 'settings'）
+  // =============================================
+  function showPage(pageId) {
+    try {
+      if (!pageId) pageId = 'home';
+      var pages = document.querySelectorAll('[data-page]');
+      for (var i = 0; i < pages.length; i++) {
+        pages[i].style.display =
+          (pages[i].getAttribute('data-page') === pageId) ? 'block' : 'none';
+      }
+      var navBtns = document.querySelectorAll('[data-nav-page]');
+      for (var j = 0; j < navBtns.length; j++) {
+        if (navBtns[j].getAttribute('data-nav-page') === pageId) {
+          navBtns[j].classList.add('is-active');
+        } else {
+          navBtns[j].classList.remove('is-active');
+        }
+      }
+      // 他スクリプトから現在ページを参照可能に
+      window.CURRENT_PAGE = pageId;
+    } catch (e) {
+      console.error('showPage エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【トースト】画面下部に通知を表示し3秒後に自動消去
+  // CSS（css.html）の .toast / .is-show を再利用し、color のみ type で変更
+  // 引数：message（文字列）・type（'success' | 'error' | 'info'、省略時 info）
+  // =============================================
+  function showToast(message, type) {
+    try {
+      var color = TOAST_COLORS[type] || TOAST_COLORS.info;
+      var toast = document.createElement('div');
+      toast.className = 'toast';
+      toast.textContent = String(message);
+      toast.style.background = color;
+      toast.style.color = '#fff';
+      document.body.appendChild(toast);
+
+      // 次フレームで is-show を付与しフェードイン
+      requestAnimationFrame(function() {
+        toast.classList.add('is-show');
+      });
+
+      // 表示時間経過後にフェードアウト→DOM削除
+      setTimeout(function() {
+        toast.classList.remove('is-show');
+        setTimeout(function() {
+          if (toast.parentNode) toast.parentNode.removeChild(toast);
+        }, 250);
+      }, TOAST_DURATION);
+    } catch (e) {
+      console.error('showToast エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【ローディング開始】ボタンを disabled 化・「処理中...」表示
+  // 引数：buttonEl（DOM要素）
+  // 戻り値：元のテキスト（hideLoading での復元用）
+  // =============================================
+  function showLoading(buttonEl) {
+    try {
+      if (!buttonEl) return '';
+      var original = buttonEl.textContent || buttonEl.innerText || '';
+      buttonEl.setAttribute('data-original-text', original);
+      buttonEl.disabled = true;
+      buttonEl.textContent = '処理中...';
+      return original;
+    } catch (e) {
+      console.error('showLoading エラー: ' + e);
+      return '';
+    }
+  }
+
+  // =============================================
+  // 【ローディング終了】ボタンを元状態に戻す
+  // 引数：buttonEl（DOM要素）・originalText（省略時は data-original-text から復元）
+  // =============================================
+  function hideLoading(buttonEl, originalText) {
+    try {
+      if (!buttonEl) return;
+      var text = (originalText !== undefined && originalText !== null && originalText !== '')
+        ? originalText
+        : (buttonEl.getAttribute('data-original-text') || '');
+      buttonEl.disabled = false;
+      buttonEl.textContent = text;
+      buttonEl.removeAttribute('data-original-text');
+    } catch (e) {
+      console.error('hideLoading エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【GAS呼び出しラッパー】google.script.run の定型処理を集約
+  // 引数：
+  //   functionName     - GAS側関数名（文字列）
+  //   params           - 引数の配列（1引数の場合も配列で渡す）
+  //   successCallback  - 成功時コールバック（function）
+  //   errorCallback    - 失敗時コールバック（function、省略時は showToast でエラー表示）
+  // =============================================
+  function callGAS(functionName, params, successCallback, errorCallback) {
+    try {
+      if (!functionName) throw new Error('functionName が指定されていません');
+      if (typeof google === 'undefined' || !google.script || !google.script.run) {
+        throw new Error('google.script.run が利用できません');
+      }
+      var runner = google.script.run
+        .withSuccessHandler(function(result) {
+          try {
+            if (typeof successCallback === 'function') successCallback(result);
+          } catch (e2) {
+            console.error('callGAS successCallback エラー: ' + e2);
+          }
+        })
+        .withFailureHandler(function(error) {
+          try {
+            if (typeof errorCallback === 'function') {
+              errorCallback(error);
+            } else {
+              showToast('エラーが発生しました', 'error');
+            }
+          } catch (e3) {
+            console.error('callGAS errorCallback エラー: ' + e3);
+          }
+        });
+      if (typeof runner[functionName] !== 'function') {
+        throw new Error('GAS関数が見つかりません: ' + functionName);
+      }
+      runner[functionName].apply(runner, params || []);
+    } catch (e) {
+      console.error('callGAS エラー: ' + e);
+      if (typeof errorCallback === 'function') {
+        errorCallback(e);
+      } else {
+        showToast('エラーが発生しました: ' + e.message, 'error');
+      }
+    }
+  }
+
+  // =============================================
+  // 【テーマ】3パターンのカラーパレット
+  // 各テーマは主要4変数 + 派生3変数（soft / nav-hover / nav-active）を保持
+  // 派生色は事前計算で固定（rgba透過は .10、nav-hover/activeは明度上げ）
+  // =============================================
+  var THEMES = {
+    orange: {
+      '--color-primary':       '#FF6B35',
+      '--color-primary-soft':  'rgba(255,107,53,.10)',
+      '--color-nav':           '#2C3E6B',
+      '--color-nav-hover':     '#3D5285',
+      '--color-nav-active':    '#4E6B9F',
+      '--color-background':    '#FFFBF5'
+    },
+    blue: {
+      '--color-primary':       '#2D6BE4',
+      '--color-primary-soft':  'rgba(45,107,228,.10)',
+      '--color-nav':           '#1A1A2E',
+      '--color-nav-hover':     '#2A2A47',
+      '--color-nav-active':    '#3A3A60',
+      '--color-background':    '#F5F9FF'
+    },
+    green: {
+      '--color-primary':       '#24BFA5',
+      '--color-primary-soft':  'rgba(36,191,165,.10)',
+      '--color-nav':           '#124C4A',
+      '--color-nav-hover':     '#17615E',
+      '--color-nav-active':    '#1E7874',
+      '--color-background':    '#F4FAF7'
+    }
+  };
+
+  // =============================================
+  // 【テーマ適用】指定テーマのCSS変数を documentElement に上書き
+  // localStorage に選択テーマ名を保存する（reload時の復元用）
+  // 引数：themeName（'orange' | 'blue' | 'green'、不明値はorangeにフォールバック）
+  // =============================================
+  function applyTheme(themeName) {
+    try {
+      var theme = THEMES[themeName] || THEMES.orange;
+      var actualName = THEMES[themeName] ? themeName : 'orange';
+      var root = document.documentElement;
+      for (var key in theme) {
+        if (theme.hasOwnProperty(key)) {
+          root.style.setProperty(key, theme[key]);
+        }
+      }
+      // localStorage が無効な環境（プライベートブラウジング等）でも例外で停止しない
+      try {
+        window.localStorage.setItem('otayori_theme', actualName);
+      } catch (e2) {
+        console.warn('localStorage save skipped: ' + e2);
+      }
+      // 他画面に現在テーマを伝達（settings画面のチェック更新用）
+      window.CURRENT_THEME = actualName;
+    } catch (e) {
+      console.error('applyTheme エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【テーマ復元】localStorage から保存済みテーマを取得して適用
+  // 未保存・読み取り失敗時は 'orange'（デフォルト）を適用
+  // =============================================
+  function loadSavedTheme() {
+    try {
+      var saved = null;
+      try {
+        saved = window.localStorage.getItem('otayori_theme');
+      } catch (e2) {
+        console.warn('localStorage read skipped: ' + e2);
+      }
+      applyTheme(saved || 'orange');
+    } catch (e) {
+      console.error('loadSavedTheme エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【PDF描画】PDF base64（または data: URL）を canvas に1ページ目描画
+  // 引数：
+  //   dataUrlOrBase64  - 'data:application/pdf;base64,...' または純base64
+  //   canvasEl         - 描画先 <canvas>
+  //   onDone(err)      - 完了/失敗コールバック（成功時は err=null）
+  // 注：PDF.jsライブラリ未ロード時は即座にエラーコールバック
+  // =============================================
+  function renderPdfToCanvas(dataUrlOrBase64, canvasEl, onDone) {
+    try {
+      if (!canvasEl) return;
+      if (typeof window.pdfjsLib === 'undefined') {
+        if (typeof onDone === 'function') onDone(new Error('pdfjsLib unavailable'));
+        return;
+      }
+      // data:プレフィックスを除去して純base64化
+      var s = String(dataUrlOrBase64 || '');
+      var commaIdx = s.indexOf(',');
+      var pure = (commaIdx !== -1) ? s.substring(commaIdx + 1) : s;
+
+      // base64 → Uint8Array
+      var binary = atob(pure);
+      var len = binary.length;
+      var bytes = new Uint8Array(len);
+      for (var i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+
+      // PDF.js で document を取得
+      pdfjsLib.getDocument({ data: bytes }).promise.then(function(pdf) {
+        pdf.getPage(1).then(function(page) {
+          // 描画解像度（最大幅 400px 程度）を計算
+          var unscaled = page.getViewport({ scale: 1.0 });
+          var targetWidth = 400;
+          var scale = targetWidth / unscaled.width;
+          var viewport = page.getViewport({ scale: scale });
+          canvasEl.width  = viewport.width;
+          canvasEl.height = viewport.height;
+          var ctx = canvasEl.getContext('2d');
+          page.render({ canvasContext: ctx, viewport: viewport }).promise.then(function() {
+            if (typeof onDone === 'function') onDone(null);
+          }).catch(function(errRender) {
+            console.error('PDF render error: ' + errRender);
+            if (typeof onDone === 'function') onDone(errRender);
+          });
+        }).catch(function(errPage) {
+          console.error('PDF getPage error: ' + errPage);
+          if (typeof onDone === 'function') onDone(errPage);
+        });
+      }).catch(function(errDoc) {
+        console.error('PDF getDocument error: ' + errDoc);
+        if (typeof onDone === 'function') onDone(errDoc);
+      });
+    } catch (e) {
+      console.error('renderPdfToCanvas エラー: ' + e);
+      if (typeof onDone === 'function') onDone(e);
+    }
+  }
+
+  // =============================================
+  // 【モーダル開く】指定IDの要素に is-open を付与
+  // オーバーレイクリックで閉じるイベントを1度だけバインドする（data-modal-bound 属性で重複防止）
+  // 引数：modalId（文字列）
+  // =============================================
+  function openModal(modalId) {
+    try {
+      var modal = document.getElementById(modalId);
+      if (!modal) return;
+      if (!modal.getAttribute('data-modal-bound')) {
+        modal.addEventListener('click', function(ev) {
+          if (ev.target === modal) closeModal(modalId);
+        });
+        modal.setAttribute('data-modal-bound', 'true');
+      }
+      modal.classList.add('is-open');
+      if (window.lucide) lucide.createIcons();
+    } catch (e) {
+      console.error('openModal エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【モーダル閉じる】指定IDの要素から is-open を除去
+  // 引数：modalId（文字列）
+  // =============================================
+  function closeModal(modalId) {
+    try {
+      var modal = document.getElementById(modalId);
+      if (!modal) return;
+      modal.classList.remove('is-open');
+    } catch (e) {
+      console.error('closeModal エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【初期化】初期ページ表示・ナビゲーション結線・Lucide描画
+  // index.html のインライン showPage 廃止により本ファイルへ集約
+  // =============================================
+  function init() {
+    try {
+      // テーマ復元（他処理より先に行いFOUCを最小化）
+      loadSavedTheme();
+
+      // 初期表示（doGet が決めた initialPage）
+      showPage(window.INITIAL_PAGE || 'home');
+
+      // ナビゲーションクリック束ね（BottomNav・SideNav の両方をカバー）
+      var navBtns = document.querySelectorAll('[data-nav-page]');
+      for (var i = 0; i < navBtns.length; i++) {
+        navBtns[i].addEventListener('click', function(ev) {
+          ev.preventDefault();
+          showPage(this.getAttribute('data-nav-page'));
+        });
+      }
+
+      // Lucide アイコン初期化
+      if (window.lucide) lucide.createIcons();
+    } catch (e) {
+      console.error('js.html init エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【公開】他HTMLから呼び出せるよう window へ貼る
+  // =============================================
+  window.formatYearMonth = formatYearMonth;
+  window.formatDateTime  = formatDateTime;
+  window.formatDate      = formatDate;
+  window.showPage        = showPage;
+  window.showToast       = showToast;
+  window.showLoading     = showLoading;
+  window.hideLoading     = hideLoading;
+  window.callGAS         = callGAS;
+  window.openModal       = openModal;
+  window.closeModal      = closeModal;
+  window.renderPdfToCanvas = renderPdfToCanvas;
+  window.applyTheme        = applyTheme;
+  window.loadSavedTheme    = loadSavedTheme;
+  window.THEMES            = THEMES;
+
+  // DOM準備完了後に初期化
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>

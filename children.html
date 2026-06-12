@@ -1,0 +1,1182 @@
+<!-- =============================================
+     【children.html】子ども管理画面（T-08）
+     対応機能：F-03 子ども登録 / F-04 子ども編集 / F-05 子ども削除
+     ・チップ表示＋タップで詳細カード展開
+     ・追加／編集／削除モーダル
+     ・全 google.script.run に withFailureHandler を実装
+     ・スマホ／タブレット／PC のレスポンシブ対応
+============================================= -->
+
+<style>
+  /* ---- 画面コンテナ ---- */
+  .cm-root { position: relative; }
+
+  /* ---- ヘッダー：タイトル＋追加ボタン ---- */
+  .cm-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 16px;
+    gap: 12px;
+  }
+  .cm-title {
+    font-family: var(--font-heading);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    font-size: 24px;
+    margin: 0;
+  }
+  .cm-add-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    min-height: 48px;
+    padding: 0 18px;
+    background: var(--color-secondary);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: opacity .15s ease, box-shadow .15s ease, transform .08s ease;
+  }
+  .cm-add-btn:not(:disabled):hover {
+    box-shadow: var(--shadow-cta);
+    transform: translateY(-1px);
+  }
+  .cm-add-btn:disabled { opacity: .5; cursor: not-allowed; }
+  .cm-add-btn i { width: 18px; height: 18px; }
+
+  /* ---- 子どもチップ群（折り返し・水平スクロールなし） ---- */
+  .cm-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+  .cm-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 8px 20px;
+    border-radius: var(--radius-pill);
+    background: var(--color-surface);
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.2;
+    cursor: pointer;
+    transition: background .15s, color .15s, border-color .15s;
+  }
+  .cm-chip:hover { background: #FAFAFA; }
+  .cm-chip.is-selected {
+    background: var(--color-primary);
+    color: #fff;
+    border-color: var(--color-primary);
+    font-weight: 700;
+  }
+  .cm-chip.is-selected:hover { background: var(--color-primary); opacity: .92; }
+
+  /* ---- 詳細カード ---- */
+  .cm-detail {
+    background: var(--color-surface);
+    border-radius: 20px;
+    box-shadow: 0 2px 16px rgba(0,0,0,.06);
+    padding: 24px;
+    margin-bottom: 16px;
+  }
+  .cm-detail[hidden] { display: none; }
+
+  /* ---- 詳細カード：アバター ---- */
+  .cm-detail-avatar-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    margin: 0 0 20px;
+  }
+  .cm-detail-avatar {
+    width: 96px;
+    height: 96px;
+    border-radius: 50%;
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .cm-detail-avatar i { width: 44px; height: 44px; }
+  .cm-detail-avatar-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .cm-btn-avatar {
+    color: var(--color-primary);
+    border: 1px solid var(--color-primary);
+    background: var(--color-surface);
+    flex: 0 0 auto;
+    padding: 0 18px;
+  }
+  .cm-btn-avatar:not(:disabled):hover { background: var(--color-primary-soft); }
+
+  .cm-detail-name {
+    font-family: var(--font-heading);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    font-size: 22px;
+    margin: 0 0 8px;
+    color: var(--color-text);
+    text-align: center;
+  }
+  .cm-detail-date {
+    color: var(--color-text-muted);
+    font-size: 13px;
+    margin: 0 0 20px;
+    text-align: center;
+  }
+  .cm-detail-actions {
+    display: flex;
+    gap: 12px;
+  }
+  .cm-btn-outline {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 48px;
+    padding: 0 16px;
+    background: var(--color-surface);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    flex: 1;
+    transition: background .15s ease;
+  }
+  .cm-btn-outline:not(:disabled):hover { background: #FAFAFA; }
+  .cm-btn-outline:disabled { opacity: .5; cursor: not-allowed; }
+  .cm-btn-outline i { width: 18px; height: 18px; }
+  .cm-btn-edit {
+    color: var(--color-secondary);
+    border: 1px solid var(--color-secondary);
+  }
+  .cm-btn-delete {
+    color: #E53935;
+    border: 1px solid #E53935;
+  }
+
+  /* ---- 空状態 ---- */
+  .cm-empty {
+    text-align: center;
+    color: #999;
+    padding: 48px 16px;
+    font-size: 14px;
+  }
+  .cm-empty[hidden] { display: none; }
+
+  /* ---- モーダル共通 ---- */
+  .cm-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    z-index: 200;
+  }
+  .cm-modal.is-open { display: flex; }
+  .cm-modal-box {
+    background: var(--color-surface);
+    border-radius: 20px;
+    padding: 24px;
+    width: 90%;
+    max-width: 400px;
+    box-shadow: 0 12px 32px rgba(0,0,0,.2);
+  }
+  .cm-modal-title {
+    font-family: var(--font-heading);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    font-size: 18px;
+    margin: 0 0 16px;
+  }
+  .cm-modal-body { margin-bottom: 20px; }
+  .cm-modal-label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 13px;
+    color: #666;
+  }
+  .cm-modal-input {
+    width: 100%;
+    min-height: 44px;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: var(--radius);
+    font-family: var(--font-body);
+    font-size: 16px;
+    margin-bottom: 12px;
+  }
+  .cm-modal-input:focus {
+    outline: none;
+    border-color: var(--color-primary);
+  }
+  .cm-modal-input:last-child { margin-bottom: 0; }
+  .cm-modal-target {
+    font-size: 15px;
+    margin: 0 0 8px;
+    color: var(--color-text);
+  }
+  .cm-modal-note {
+    color: #757575;
+    font-size: 13px;
+    margin: 12px 0 0;
+  }
+  .cm-modal-actions {
+    display: flex;
+    gap: 12px;
+  }
+  .cm-modal-actions .btn { flex: 1; }
+  .cm-btn-danger {
+    background: #E53935;
+    color: #fff;
+  }
+
+  /* ---- アバター変更モーダル ---- */
+  .cm-avatar-preview {
+    width: 150px;
+    height: 150px;
+    border-radius: 50%;
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin: 0 auto 16px;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .cm-avatar-preview i { width: 36px; height: 36px; }
+  .cm-avatar-preview-msg {
+    font-size: 11px;
+    color: var(--color-text-muted);
+    padding: 0 8px;
+    text-align: center;
+  }
+  .cm-avatar-preview-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .cm-btn-avatar-pick {
+    width: 100%;
+    color: var(--color-primary);
+    border: 2px dashed var(--color-primary);
+    background: var(--color-surface);
+    margin-bottom: 4px;
+  }
+  .cm-btn-avatar-pick:hover { background: var(--color-primary-soft); }
+
+  /* ---- バッジカラー選択セクション（T-32） ---- */
+  .cm-detail-color { margin: 0 0 20px; }
+  .cm-detail-color-label {
+    font-size: 13px;
+    color: #666;
+    margin: 0 0 10px;
+  }
+  .cm-color-swatches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  /* ---- レスポンシブ：タブレット（768px+） ---- */
+  @media (min-width: 768px) {
+    .cm-chips { gap: 12px; }
+    .cm-detail {
+      width: 60%;
+      margin-left: auto;
+      margin-right: auto;
+    }
+  }
+
+  /* ---- レスポンシブ：PC（1024px+） ---- */
+  @media (min-width: 1024px) {
+    .cm-detail {
+      width: 480px;
+      max-width: 480px;
+    }
+  }
+</style>
+
+<div class="cm-root">
+  <!-- ヘッダー：タイトル＋＋追加ボタン -->
+  <div class="cm-header">
+    <h1 class="cm-title">子ども管理</h1>
+    <button type="button" id="cm-add" class="cm-add-btn" aria-label="子どもを追加">
+      <i data-lucide="plus"></i>追加
+    </button>
+  </div>
+
+  <!-- 子どもチップ一覧（折り返し表示） -->
+  <div class="cm-chips" id="cm-chips" role="list"></div>
+
+  <!-- 詳細カード（チップ選択時に表示） -->
+  <div class="cm-detail" id="cm-detail" hidden>
+    <div class="cm-detail-avatar-wrap">
+      <div class="cm-detail-avatar" id="cm-detail-avatar">
+        <i data-lucide="user-round"></i>
+      </div>
+      <button type="button" id="cm-avatar-change" class="cm-btn-outline cm-btn-avatar">
+        <i data-lucide="camera"></i>アバター変更
+      </button>
+    </div>
+    <h2 class="cm-detail-name" id="cm-detail-name"></h2>
+    <p class="cm-detail-date" id="cm-detail-date"></p>
+
+    <!-- バッジカラー選択（T-32：10色スウォッチ） -->
+    <div class="cm-detail-color">
+      <div class="cm-detail-color-label">バッジカラー</div>
+      <div class="cm-color-swatches" id="cm-color-swatches" role="radiogroup" aria-label="バッジカラーを選ぶ"></div>
+    </div>
+
+    <div class="cm-detail-actions">
+      <button type="button" id="cm-edit" class="cm-btn-outline cm-btn-edit">
+        <i data-lucide="edit"></i>編集
+      </button>
+      <button type="button" id="cm-delete" class="cm-btn-outline cm-btn-delete">
+        <i data-lucide="trash-2"></i>削除
+      </button>
+    </div>
+  </div>
+
+  <!-- 空状態 -->
+  <div class="cm-empty" id="cm-empty" hidden>
+    まだ子どもが登録されていません
+  </div>
+</div>
+
+<!-- 追加モーダル -->
+<div class="cm-modal" id="cm-modal-add" role="dialog" aria-modal="true" aria-labelledby="cm-modal-add-title">
+  <div class="cm-modal-box">
+    <h2 class="cm-modal-title" id="cm-modal-add-title">子どもを追加</h2>
+    <div class="cm-modal-body">
+      <label class="cm-modal-label" for="cm-add-name">名前</label>
+      <input type="text" id="cm-add-name" class="cm-modal-input" placeholder="例：長男" maxlength="30" autocomplete="off">
+    </div>
+    <div class="cm-modal-actions">
+      <button type="button" class="btn btn-ghost" data-modal-close="cm-modal-add">キャンセル</button>
+      <button type="button" id="cm-add-save" class="btn btn-primary">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 編集モーダル -->
+<div class="cm-modal" id="cm-modal-edit" role="dialog" aria-modal="true" aria-labelledby="cm-modal-edit-title">
+  <div class="cm-modal-box">
+    <h2 class="cm-modal-title" id="cm-modal-edit-title">子どもを編集</h2>
+    <div class="cm-modal-body">
+      <label class="cm-modal-label" for="cm-edit-name">名前</label>
+      <input type="text" id="cm-edit-name" class="cm-modal-input" placeholder="例：長男" maxlength="30" autocomplete="off">
+      <label class="cm-modal-label" for="cm-edit-order">表示順</label>
+      <input type="number" id="cm-edit-order" class="cm-modal-input" min="1" step="1">
+    </div>
+    <div class="cm-modal-actions">
+      <button type="button" class="btn btn-ghost" data-modal-close="cm-modal-edit">キャンセル</button>
+      <button type="button" id="cm-edit-save" class="btn btn-primary">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 削除確認モーダル -->
+<div class="cm-modal" id="cm-modal-delete" role="dialog" aria-modal="true" aria-labelledby="cm-modal-delete-title">
+  <div class="cm-modal-box">
+    <h2 class="cm-modal-title" id="cm-modal-delete-title">削除しますか？</h2>
+    <div class="cm-modal-body">
+      <p class="cm-modal-target" id="cm-delete-target"></p>
+      <p class="cm-modal-note">※登録済みのおたよりデータは削除されません</p>
+    </div>
+    <div class="cm-modal-actions">
+      <button type="button" class="btn btn-ghost" data-modal-close="cm-modal-delete">キャンセル</button>
+      <button type="button" id="cm-delete-confirm" class="btn cm-btn-danger">削除</button>
+    </div>
+  </div>
+</div>
+
+<!-- アバター変更モーダル -->
+<div class="cm-modal" id="cm-modal-avatar" role="dialog" aria-modal="true" aria-labelledby="cm-modal-avatar-title">
+  <div class="cm-modal-box">
+    <h2 class="cm-modal-title" id="cm-modal-avatar-title">アバターを変更</h2>
+    <div class="cm-modal-body">
+      <p class="cm-modal-target" id="cm-avatar-target"></p>
+      <div class="cm-avatar-preview" id="cm-avatar-preview">
+        <i data-lucide="image"></i>
+        <span class="cm-avatar-preview-msg">画像を選んでください</span>
+      </div>
+      <input type="file" id="cm-avatar-input" accept="image/*" hidden>
+      <button type="button" id="cm-avatar-pick" class="cm-btn-outline cm-btn-avatar-pick">
+        <i data-lucide="upload"></i>画像を選ぶ
+      </button>
+      <p class="cm-modal-note">最大10MB／JPEG・PNG推奨（HEICは端末により表示できないことがあります）</p>
+    </div>
+    <div class="cm-modal-actions">
+      <button type="button" class="btn btn-ghost" data-modal-close="cm-modal-avatar">キャンセル</button>
+      <button type="button" id="cm-avatar-save" class="btn btn-primary" disabled>保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  // =============================================
+  // 【子ども管理画面】チップ表示・詳細展開・モーダル制御
+  // 同梱SPAのため即時実行関数で名前空間を閉じる
+  // =============================================
+
+  // ---- 状態（取得済み一覧・選択中ID・通信中フラグ） ----
+  var ChildrenPageState = {
+    list: [],
+    selectedId: null,
+    loading: false,
+    avatarTemp: { dataUrl: null, mimeType: null }   // モーダル内で選択中のアバター画像
+  };
+
+  // ---- 共有画像キャッシュ（home/notices と共有：fileId → dataUrl） ----
+  var imageCache = (window.NoticeImageCache = window.NoticeImageCache || {});
+
+  // ---- バッジカラーパレット（T-32：Constants.gs の CHILD_COLORS と同じ順序で再掲） ----
+  // 追加・順序変更時は Constants.gs の CHILD_COLORS と同期させること
+  var CHILD_COLOR_PALETTE = [
+    '#FF6B6B',  // CORAL
+    '#FFE45C',  // LEMON
+    '#FFF3A3',  // YELLOW
+    '#6BCB77',  // GREEN
+    '#B8F2E6',  // MINT
+    '#4D96FF',  // BLUE
+    '#1E3A5F',  // NAVY
+    '#A855F7',  // PURPLE
+    '#FFB7C5',  // SAKURA
+    '#E84393'   // PINK
+  ];
+
+  // ---- DOM参照（init で確定） ----
+  var elChips, elDetail, elDetailName, elDetailDate, elDetailAvatar;
+  var elEmpty, elAdd, elEdit, elDelete, elAvatarChange;
+  var modalAdd, modalEdit, modalDelete, modalAvatar;
+  var inputAddName, inputEditName, inputEditOrder;
+  var btnAddSave, btnEditSave, btnDeleteConfirm, btnAvatarSave;
+  var elDeleteTarget, elAvatarTarget, elAvatarPreview, elAvatarPick, elAvatarInput;
+  var elColorSwatches;
+
+  // =============================================
+  // 【ID検索】state.list から指定IDのオブジェクトを返す
+  // 引数：id（文字列）
+  // 戻り値：子どもオブジェクト or null
+  // =============================================
+  function findById(id) {
+    try {
+      if (!id) return null;
+      for (var i = 0; i < ChildrenPageState.list.length; i++) {
+        if (ChildrenPageState.list[i].id === id) return ChildrenPageState.list[i];
+      }
+      return null;
+    } catch (e) {
+      console.error('findById エラー: ' + e);
+      return null;
+    }
+  }
+
+  // =============================================
+  // 【アバター描画】詳細カードのアバター枠を画像 or アイコンで描画
+  // - avatarFileId 無し → user-round アイコン
+  // - キャッシュ済 → 即img表示
+  // - 未キャッシュ → アイコン表示しつつ getNoticeImage で取得 → 取得完了で差替
+  // =============================================
+  function renderDetailAvatar(child) {
+    try {
+      if (!elDetailAvatar) return;
+      // 初期化：アイコンに戻す
+      elDetailAvatar.innerHTML = '<i data-lucide="user-round"></i>';
+
+      var fid = child && child.avatarFileId;
+      if (!fid) return;
+
+      if (imageCache[fid]) {
+        applyDetailAvatarImg(imageCache[fid]);
+        return;
+      }
+
+      // 未キャッシュ → 取得（成功時にキャッシュへ・選択中が同じ子どもなら差替）
+      var targetId = child.id;
+      callGAS('getNoticeImage', [fid], function(dataUrl) {
+        try {
+          imageCache[fid] = dataUrl;
+          // ユーザーが別の子どもに切替済みの場合は反映しない
+          if (ChildrenPageState.selectedId === targetId) {
+            applyDetailAvatarImg(dataUrl);
+          }
+        } catch (e2) {
+          console.error('renderDetailAvatar callback エラー: ' + e2);
+        }
+      }, function(err) {
+        // 取得失敗時はアイコンのまま（何もしない）
+      });
+    } catch (e) {
+      console.error('renderDetailAvatar エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【アバター適用】詳細カードの中身を img に置き換え
+  // =============================================
+  function applyDetailAvatarImg(dataUrl) {
+    try {
+      if (!elDetailAvatar) return;
+      elDetailAvatar.innerHTML = '';
+      var img = document.createElement('img');
+      img.className = 'cm-detail-avatar-img';
+      img.alt = 'アバター';
+      img.src = dataUrl;
+      elDetailAvatar.appendChild(img);
+    } catch (e) {
+      console.error('applyDetailAvatarImg エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【描画】チップ群・詳細カード・空状態を再描画する
+  // =============================================
+  function render() {
+    try {
+      var list = ChildrenPageState.list;
+
+      // チップ一覧を再構築
+      elChips.innerHTML = '';
+      if (list.length === 0) {
+        elEmpty.hidden = false;
+      } else {
+        elEmpty.hidden = true;
+        for (var i = 0; i < list.length; i++) {
+          var c = list[i];
+          var chip = document.createElement('button');
+          chip.type = 'button';
+          chip.className = 'cm-chip';
+          chip.setAttribute('data-child-id', c.id);
+          chip.setAttribute('role', 'listitem');
+          chip.textContent = c.name;
+          if (c.id === ChildrenPageState.selectedId) {
+            chip.classList.add('is-selected');
+          }
+          chip.addEventListener('click', onChipClick);
+          elChips.appendChild(chip);
+        }
+      }
+
+      // 詳細カード
+      var selected = findById(ChildrenPageState.selectedId);
+      if (selected) {
+        elDetailName.textContent = selected.name;
+        elDetailDate.textContent = '登録日：' + (selected.createdDate || '—');
+        elDetail.hidden = false;
+        renderDetailAvatar(selected);
+        renderColorSwatches(selected);
+      } else {
+        elDetail.hidden = true;
+      }
+
+      // 動的要素のLucideアイコン適用
+      if (window.lucide) lucide.createIcons();
+    } catch (e) {
+      console.error('render エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【バッジカラー描画】10色スウォッチを生成、現在色に selected クラス付与
+  // 引数：child（{id, color, ...}）
+  // =============================================
+  function renderColorSwatches(child) {
+    try {
+      if (!elColorSwatches) return;
+      elColorSwatches.innerHTML = '';
+
+      var currentColor = (child && child.color) ? String(child.color).toUpperCase() : '';
+
+      for (var i = 0; i < CHILD_COLOR_PALETTE.length; i++) {
+        var color = CHILD_COLOR_PALETTE[i];
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'color-swatch';
+        btn.setAttribute('role', 'radio');
+        btn.setAttribute('data-color', color);
+        btn.setAttribute('aria-label', 'カラー ' + color);
+        // CSS変数で色を渡す（インラインスタイル禁止のため setProperty のみ）
+        btn.style.setProperty('--swatch-color', color);
+        if (currentColor === color.toUpperCase()) {
+          btn.classList.add('selected');
+          btn.setAttribute('aria-checked', 'true');
+        } else {
+          btn.setAttribute('aria-checked', 'false');
+        }
+        btn.addEventListener('click', onColorSwatchClick);
+        elColorSwatches.appendChild(btn);
+      }
+    } catch (e) {
+      console.error('renderColorSwatches エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【バッジカラー保存】スウォッチをタップ → updateChildColor 実行
+  // 成功時：state 更新 → 再描画 → トースト
+  // =============================================
+  function onColorSwatchClick() {
+    try {
+      var color = this.getAttribute('data-color');
+      if (!color) return;
+
+      var selected = findById(ChildrenPageState.selectedId);
+      if (!selected) return;
+
+      // 同じ色を再タップしたら何もしない
+      var current = (selected.color || '').toUpperCase();
+      if (current === color.toUpperCase()) return;
+
+      setLoading(true);
+      callGAS('updateChildColor', [selected.id, color], function(result) {
+        try {
+          // state を更新
+          for (var i = 0; i < ChildrenPageState.list.length; i++) {
+            if (ChildrenPageState.list[i].id === selected.id) {
+              ChildrenPageState.list[i].color = color;
+              break;
+            }
+          }
+          setLoading(false);
+          render();
+          showToast('カラーを変更しました', 'success');
+        } catch (eInner) {
+          setLoading(false);
+          alert('エラーが発生しました: ' + eInner.message);
+        }
+      }, function(err) {
+        setLoading(false);
+        var msg = (err && err.message) ? err.message : 'カラーの保存に失敗しました';
+        showToast(msg, 'error');
+      });
+    } catch (e) {
+      setLoading(false);
+      console.error('onColorSwatchClick エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【ローディング制御】通信中はボタン群をdisabled化
+  // =============================================
+  function setLoading(flag) {
+    try {
+      ChildrenPageState.loading = !!flag;
+      if (elAdd)            elAdd.disabled = flag;
+      if (elEdit)           elEdit.disabled = flag;
+      if (elDelete)         elDelete.disabled = flag;
+      if (elAvatarChange)   elAvatarChange.disabled = flag;
+      if (btnAddSave)       btnAddSave.disabled = flag;
+      if (btnEditSave)      btnEditSave.disabled = flag;
+      if (btnDeleteConfirm) btnDeleteConfirm.disabled = flag;
+      // アバター保存ボタンは画像選択済みでないと有効にしないので、loading=trueの時のみdisable
+      if (btnAvatarSave && flag) btnAvatarSave.disabled = true;
+    } catch (e) {
+      console.error('setLoading エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【共通】GASエラーメッセージを文字列化
+  // =============================================
+  function errMsg(error) {
+    try {
+      if (!error) return '不明なエラー';
+      if (typeof error === 'string') return error;
+      if (error.message) return error.message;
+      return String(error);
+    } catch (e) {
+      return '不明なエラー';
+    }
+  }
+
+  // =============================================
+  // 【データ取得】getChildren() を呼び出して一覧を更新
+  // =============================================
+  function loadChildren() {
+    try {
+      setLoading(true);
+      google.script.run
+        .withSuccessHandler(function(result) {
+          try {
+            ChildrenPageState.list = result || [];
+            // 削除等で選択IDが消えた場合のクリーンアップ
+            if (ChildrenPageState.selectedId && !findById(ChildrenPageState.selectedId)) {
+              ChildrenPageState.selectedId = null;
+            }
+            setLoading(false);
+            render();
+          } catch (e) {
+            setLoading(false);
+            alert('エラーが発生しました: ' + e.message);
+          }
+        })
+        .withFailureHandler(function(error) {
+          setLoading(false);
+          showToast('エラーが発生しました', 'error');
+        })
+        .getChildren();
+    } catch (e) {
+      setLoading(false);
+      alert('エラーが発生しました: ' + e.message);
+    }
+  }
+
+  // =============================================
+  // 【モーダル開閉】共通ヘルパー
+  // =============================================
+  function openModal(modal) {
+    try {
+      modal.classList.add('is-open');
+      if (window.lucide) lucide.createIcons();
+    } catch (e) {
+      console.error('openModal エラー: ' + e);
+    }
+  }
+  function closeModal(modal) {
+    try {
+      modal.classList.remove('is-open');
+    } catch (e) {
+      console.error('closeModal エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【チップクリック】同じチップなら閉じる・別チップなら切替
+  // =============================================
+  function onChipClick() {
+    try {
+      var id = this.getAttribute('data-child-id');
+      if (ChildrenPageState.selectedId === id) {
+        ChildrenPageState.selectedId = null;
+      } else {
+        ChildrenPageState.selectedId = id;
+      }
+      render();
+    } catch (e) {
+      console.error('onChipClick エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【追加】＋追加ボタン → モーダル → addChild()
+  // =============================================
+  function openAddModal() {
+    try {
+      inputAddName.value = '';
+      openModal(modalAdd);
+      setTimeout(function() {
+        try { inputAddName.focus(); } catch (e) {}
+      }, 50);
+    } catch (e) {
+      console.error('openAddModal エラー: ' + e);
+    }
+  }
+
+  function saveAdd() {
+    try {
+      var name = inputAddName.value.trim();
+      if (name === '') {
+        alert('名前を入力してください');
+        return;
+      }
+      setLoading(true);
+      google.script.run
+        .withSuccessHandler(function(result) {
+          try {
+            ChildrenPageState.list = result || [];
+            setLoading(false);
+            closeModal(modalAdd);
+            render();
+            showToast('追加しました', 'success');
+          } catch (e) {
+            setLoading(false);
+            alert('エラーが発生しました: ' + e.message);
+          }
+        })
+        .withFailureHandler(function(error) {
+          setLoading(false);
+          showToast('エラーが発生しました', 'error');
+        })
+        .addChild(name);
+    } catch (e) {
+      setLoading(false);
+      alert('エラーが発生しました: ' + e.message);
+    }
+  }
+
+  // =============================================
+  // 【編集】編集ボタン → モーダル（現在値セット） → updateChild()
+  // =============================================
+  function openEditModal() {
+    try {
+      var selected = findById(ChildrenPageState.selectedId);
+      if (!selected) return;
+      inputEditName.value = selected.name || '';
+      inputEditOrder.value = (selected.order && !isNaN(selected.order)) ? selected.order : 1;
+      openModal(modalEdit);
+      setTimeout(function() {
+        try { inputEditName.focus(); } catch (e) {}
+      }, 50);
+    } catch (e) {
+      console.error('openEditModal エラー: ' + e);
+    }
+  }
+
+  function saveEdit() {
+    try {
+      var selected = findById(ChildrenPageState.selectedId);
+      if (!selected) return;
+      var name = inputEditName.value.trim();
+      var orderNum = parseInt(inputEditOrder.value, 10);
+      if (name === '') {
+        alert('名前を入力してください');
+        return;
+      }
+      if (isNaN(orderNum) || orderNum < 1) {
+        alert('表示順は1以上の数値を指定してください');
+        return;
+      }
+      setLoading(true);
+      google.script.run
+        .withSuccessHandler(function(result) {
+          try {
+            ChildrenPageState.list = result || [];
+            setLoading(false);
+            closeModal(modalEdit);
+            render();
+            showToast('保存しました', 'success');
+          } catch (e) {
+            setLoading(false);
+            alert('エラーが発生しました: ' + e.message);
+          }
+        })
+        .withFailureHandler(function(error) {
+          setLoading(false);
+          showToast('エラーが発生しました', 'error');
+        })
+        .updateChild(selected.id, name, orderNum);
+    } catch (e) {
+      setLoading(false);
+      alert('エラーが発生しました: ' + e.message);
+    }
+  }
+
+  // =============================================
+  // 【削除】削除ボタン → 確認モーダル → deleteChild()
+  // =============================================
+  function openDeleteModal() {
+    try {
+      var selected = findById(ChildrenPageState.selectedId);
+      if (!selected) return;
+      elDeleteTarget.textContent = selected.name + 'を削除します。';
+      openModal(modalDelete);
+    } catch (e) {
+      console.error('openDeleteModal エラー: ' + e);
+    }
+  }
+
+  function confirmDelete() {
+    try {
+      var selected = findById(ChildrenPageState.selectedId);
+      if (!selected) return;
+      setLoading(true);
+      google.script.run
+        .withSuccessHandler(function(result) {
+          try {
+            ChildrenPageState.list = result || [];
+            ChildrenPageState.selectedId = null;
+            setLoading(false);
+            closeModal(modalDelete);
+            render();
+            showToast('削除しました', 'success');
+          } catch (e) {
+            setLoading(false);
+            alert('エラーが発生しました: ' + e.message);
+          }
+        })
+        .withFailureHandler(function(error) {
+          setLoading(false);
+          showToast('エラーが発生しました', 'error');
+        })
+        .deleteChild(selected.id);
+    } catch (e) {
+      setLoading(false);
+      alert('エラーが発生しました: ' + e.message);
+    }
+  }
+
+  // =============================================
+  // 【アバター変更】モーダルを開く（プレビューは現在のアバター or プレースホルダ）
+  // =============================================
+  function openAvatarModal() {
+    try {
+      var selected = findById(ChildrenPageState.selectedId);
+      if (!selected) return;
+
+      // 状態リセット
+      ChildrenPageState.avatarTemp = { dataUrl: null, mimeType: null };
+      btnAvatarSave.disabled = true;
+      elAvatarTarget.textContent = selected.name + 'のアバターを設定します。';
+      if (elAvatarInput) elAvatarInput.value = '';
+
+      // プレビュー初期化：現在のアバター画像があればそれを表示、無ければプレースホルダ
+      resetAvatarPreview(selected);
+
+      openModal(modalAvatar);
+    } catch (e) {
+      console.error('openAvatarModal エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【アバターモーダル】プレビューを初期状態（現在のアバター or プレースホルダ）に戻す
+  // =============================================
+  function resetAvatarPreview(child) {
+    try {
+      if (!elAvatarPreview) return;
+      var fid = child && child.avatarFileId;
+      if (fid && imageCache[fid]) {
+        applyPreviewImg(imageCache[fid]);
+      } else {
+        elAvatarPreview.innerHTML =
+          '<i data-lucide="image"></i>' +
+          '<span class="cm-avatar-preview-msg">画像を選んでください</span>';
+        if (window.lucide) lucide.createIcons();
+      }
+    } catch (e) {
+      console.error('resetAvatarPreview エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【アバターモーダル】プレビュー枠の中身を img に置き換え
+  // =============================================
+  function applyPreviewImg(dataUrl) {
+    try {
+      if (!elAvatarPreview) return;
+      elAvatarPreview.innerHTML = '';
+      var img = document.createElement('img');
+      img.className = 'cm-avatar-preview-img';
+      img.alt = 'アバタープレビュー';
+      img.src = dataUrl;
+      elAvatarPreview.appendChild(img);
+    } catch (e) {
+      console.error('applyPreviewImg エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【アバターモーダル】「画像を選ぶ」ボタン → ファイル選択ダイアログ起動
+  // =============================================
+  function onAvatarPickClick() {
+    try {
+      if (elAvatarInput) elAvatarInput.click();
+    } catch (e) {
+      console.error('onAvatarPickClick エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【アバターモーダル】ファイル選択時 → FileReader で base64 化 → プレビュー更新
+  // =============================================
+  function onAvatarFilePicked(ev) {
+    try {
+      var input = ev && ev.target;
+      var files = input ? input.files : null;
+      if (!files || files.length === 0) return;
+
+      var file = files[0];
+      var MAX_BYTES = 10 * 1024 * 1024;   // 10MB（フロント側ガード・バックエンドも同上限）
+      if (file.size > MAX_BYTES) {
+        showToast('画像サイズが10MBを超えています', 'error');
+        input.value = '';
+        return;
+      }
+
+      var reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          var dataUrl = String(e.target.result || '');
+          var mime = file.type || 'image/png';
+          ChildrenPageState.avatarTemp = { dataUrl: dataUrl, mimeType: mime };
+          applyPreviewImg(dataUrl);
+          btnAvatarSave.disabled = false;
+        } catch (errInner) {
+          console.error('FileReader onload エラー: ' + errInner);
+          showToast('画像の読み込みに失敗しました', 'error');
+        }
+      };
+      reader.onerror = function() {
+        showToast('画像の読み込みに失敗しました', 'error');
+      };
+      reader.readAsDataURL(file);
+    } catch (e) {
+      console.error('onAvatarFilePicked エラー: ' + e);
+      showToast('画像の読み込みに失敗しました', 'error');
+    }
+  }
+
+  // =============================================
+  // 【アバターモーダル】保存ボタン → updateChildAvatar(childId, dataUrl, mimeType)
+  // =============================================
+  function saveAvatar() {
+    try {
+      var selected = findById(ChildrenPageState.selectedId);
+      if (!selected) return;
+
+      var temp = ChildrenPageState.avatarTemp;
+      if (!temp || !temp.dataUrl || !temp.mimeType) {
+        showToast('画像が選択されていません', 'error');
+        return;
+      }
+
+      setLoading(true);
+      callGAS('updateChildAvatar', [selected.id, temp.dataUrl, temp.mimeType], function(result) {
+        try {
+          if (!result || !result.fileId) {
+            throw new Error('updateChildAvatar から fileId が返りませんでした');
+          }
+          // 共有キャッシュへ反映（home/notices で次回描画時に即時表示）
+          imageCache[result.fileId] = result.dataUrl || temp.dataUrl;
+
+          // state を更新
+          for (var i = 0; i < ChildrenPageState.list.length; i++) {
+            if (ChildrenPageState.list[i].id === selected.id) {
+              ChildrenPageState.list[i].avatarFileId = result.fileId;
+              break;
+            }
+          }
+
+          setLoading(false);
+          closeModal(modalAvatar);
+          render();   // 詳細カードのアバター再描画
+          showToast('アバターを保存しました', 'success');
+        } catch (e2) {
+          setLoading(false);
+          alert('エラーが発生しました: ' + e2.message);
+        }
+      }, function(err) {
+        setLoading(false);
+        var msg = (err && err.message) ? err.message : '保存に失敗しました';
+        showToast(msg, 'error');
+      });
+    } catch (e) {
+      setLoading(false);
+      alert('エラーが発生しました: ' + e.message);
+    }
+  }
+
+  // =============================================
+  // 【初期化】DOM参照を取得・イベント結線・初回ロード
+  // =============================================
+  function init() {
+    try {
+      elChips          = document.getElementById('cm-chips');
+      elDetail         = document.getElementById('cm-detail');
+      elDetailName     = document.getElementById('cm-detail-name');
+      elDetailDate     = document.getElementById('cm-detail-date');
+      elDetailAvatar   = document.getElementById('cm-detail-avatar');
+      elEmpty          = document.getElementById('cm-empty');
+      elAdd            = document.getElementById('cm-add');
+      elEdit           = document.getElementById('cm-edit');
+      elDelete         = document.getElementById('cm-delete');
+      elAvatarChange   = document.getElementById('cm-avatar-change');
+      modalAdd         = document.getElementById('cm-modal-add');
+      modalEdit        = document.getElementById('cm-modal-edit');
+      modalDelete      = document.getElementById('cm-modal-delete');
+      modalAvatar      = document.getElementById('cm-modal-avatar');
+      inputAddName     = document.getElementById('cm-add-name');
+      inputEditName    = document.getElementById('cm-edit-name');
+      inputEditOrder   = document.getElementById('cm-edit-order');
+      btnAddSave       = document.getElementById('cm-add-save');
+      btnEditSave      = document.getElementById('cm-edit-save');
+      btnDeleteConfirm = document.getElementById('cm-delete-confirm');
+      btnAvatarSave    = document.getElementById('cm-avatar-save');
+      elDeleteTarget   = document.getElementById('cm-delete-target');
+      elAvatarTarget   = document.getElementById('cm-avatar-target');
+      elAvatarPreview  = document.getElementById('cm-avatar-preview');
+      elAvatarPick     = document.getElementById('cm-avatar-pick');
+      elAvatarInput    = document.getElementById('cm-avatar-input');
+      elColorSwatches  = document.getElementById('cm-color-swatches');
+
+      // 主要ボタン
+      elAdd.addEventListener('click', openAddModal);
+      elEdit.addEventListener('click', openEditModal);
+      elDelete.addEventListener('click', openDeleteModal);
+      btnAddSave.addEventListener('click', saveAdd);
+      btnEditSave.addEventListener('click', saveEdit);
+      btnDeleteConfirm.addEventListener('click', confirmDelete);
+
+      // アバター変更
+      if (elAvatarChange) elAvatarChange.addEventListener('click', openAvatarModal);
+      if (elAvatarPick)   elAvatarPick.addEventListener('click', onAvatarPickClick);
+      if (elAvatarInput)  elAvatarInput.addEventListener('change', onAvatarFilePicked);
+      if (btnAvatarSave)  btnAvatarSave.addEventListener('click', saveAvatar);
+
+      // キャンセル系（data-modal-close でモーダルIDを指定）
+      var closers = document.querySelectorAll('[data-modal-close]');
+      for (var i = 0; i < closers.length; i++) {
+        closers[i].addEventListener('click', function() {
+          var id = this.getAttribute('data-modal-close');
+          var m = document.getElementById(id);
+          if (m) closeModal(m);
+        });
+      }
+
+      // オーバーレイクリックで閉じる
+      var modals = [modalAdd, modalEdit, modalDelete, modalAvatar];
+      for (var j = 0; j < modals.length; j++) {
+        (function(m) {
+          if (!m) return;
+          m.addEventListener('click', function(ev) {
+            if (ev.target === m) closeModal(m);
+          });
+        })(modals[j]);
+      }
+
+      // 入力欄でEnter → 保存（ユーザビリティ向上）
+      inputAddName.addEventListener('keydown', function(ev) {
+        if (ev.key === 'Enter') { ev.preventDefault(); saveAdd(); }
+      });
+      inputEditOrder.addEventListener('keydown', function(ev) {
+        if (ev.key === 'Enter') { ev.preventDefault(); saveEdit(); }
+      });
+
+      // 初回データ取得
+      loadChildren();
+    } catch (e) {
+      console.error('children.html init エラー: ' + e);
+    }
+  }
+
+  // DOM準備完了後に初期化
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>

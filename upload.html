@@ -1,0 +1,1326 @@
+<!-- =============================================
+     【upload.html】おたより登録画面（T-11）
+     対応機能：F-07 おたより登録（3クリック以内で保存）
+     ・STEP1：子ども選択（チップ）
+     ・STEP2：画像選択（プレビュー・サイズ検証10MB）
+     ・STEP3：確認・保存（対象年月選択・addNotice呼び出し）
+     ・全 google.script.run は callGAS 経由（withFailureHandler 自動付与）
+     ・スマホ／タブレット／PC のレスポンシブ対応
+============================================= -->
+
+<style>
+  /* ---- ルートコンテナ ---- */
+  .up-root {
+    width: 100%;
+    margin: 0 auto;
+    overflow-x: hidden;
+  }
+
+  /* ---- ヘッダー：タイトル ---- */
+  .up-title {
+    font-family: var(--font-heading);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    font-size: 24px;
+    margin: 0 0 20px;
+  }
+
+  /* ---- ステップインジケータ ---- */
+  .up-stepper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin: 0 0 24px;
+  }
+  .up-step-dot {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--color-border);
+    color: var(--color-text-muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 14px;
+    transition: background .2s, color .2s;
+  }
+  .up-step-dot.is-active {
+    background: var(--color-primary);
+    color: #fff;
+    font-weight: 800;
+    box-shadow: 0 2px 8px rgba(46,85,255,.30);
+  }
+  .up-step-dot.is-done {
+    background: var(--color-accent);
+    color: #fff;
+  }
+  .up-step-bar {
+    width: 28px;
+    height: 2px;
+    background: var(--color-border);
+  }
+
+  /* ---- ステップ本体 ---- */
+  .up-step { display: none; }
+  .up-step.is-active { display: block; }
+  .up-step-heading {
+    font-family: var(--font-heading);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    font-size: 18px;
+    margin: 0 0 8px;
+    color: var(--color-text);
+  }
+  .up-step-desc {
+    color: var(--color-text-muted);
+    font-size: 13px;
+    margin: 0 0 18px;
+  }
+
+  /* ---- STEP1：子どもチップ ---- */
+  .up-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+  .up-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 22px;
+    border-radius: var(--radius-pill);
+    background: var(--color-surface);
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.2;
+    cursor: pointer;
+    transition: background .15s, color .15s, border-color .15s;
+  }
+  .up-chip:hover { background: #FAFAFA; }
+  .up-chip.is-selected {
+    background: var(--color-primary);
+    color: #fff;
+    border-color: var(--color-primary);
+    font-weight: 700;
+  }
+  .up-chip.is-selected:hover { background: var(--color-primary); opacity: .92; }
+  /* チェックマーク：未選択時は非表示、選択時のみ表示（JSがDOMに常時 append し is-selected で出し分け） */
+  .up-chip .up-chip-check {
+    display: none;
+    width: 16px;
+    height: 16px;
+  }
+  .up-chip.is-selected .up-chip-check { display: inline-block; }
+
+  /* ---- STEP1：子ども0人時の空状態 ---- */
+  .up-empty {
+    text-align: center;
+    padding: 32px 16px 24px;
+    color: #666;
+  }
+  .up-empty[hidden] { display: none; }
+  .up-empty-msg {
+    font-size: 14px;
+    margin: 0 0 16px;
+    line-height: 1.6;
+  }
+
+  /* ---- STEP2：ファイル選択（dropzone 風・実際のDnDなし） ---- */
+  .up-file-input { display: none; }
+  .up-file-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+    padding: 32px 16px;
+    background: var(--color-surface);
+    color: var(--color-text);
+    border: 2px dashed var(--color-border);
+    border-radius: 20px;
+    font-family: var(--font-body);
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    margin-bottom: 16px;
+    transition: border-color .15s ease, background .15s ease;
+  }
+  .up-file-btn:hover {
+    border-color: var(--color-secondary);
+    background: rgba(255,107,53,.04);
+  }
+  .up-file-btn-icon {
+    width: 48px;
+    height: 48px;
+    color: var(--color-secondary);
+  }
+  .up-file-btn-label { font-size: 15px; font-weight: 700; color: var(--color-text); }
+  .up-file-btn-sub   { font-size: 12px; color: var(--color-text-muted); font-weight: 400; }
+
+  /* ---- STEP2/3：プレビュー ---- */
+  .up-preview-wrap {
+    text-align: center;
+    padding: 12px;
+    background: #FAFAFA;
+    border-radius: var(--radius);
+    margin-bottom: 12px;
+    min-height: 80px;
+  }
+  .up-preview-wrap[hidden] { display: none; }
+  .up-preview {
+    max-width: 100%;
+    max-height: 220px;
+    border-radius: 8px;
+    display: inline-block;
+  }
+  .up-preview[hidden] { display: none; }
+  .up-preview-msg {
+    color: #757575;
+    font-size: 13px;
+    padding: 20px 12px;
+    margin: 0;
+  }
+  .up-preview-msg[hidden] { display: none; }
+
+  /* ---- STEP2：ファイル情報 ---- */
+  .up-file-info {
+    background: #F5F5F5;
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+    font-size: 13px;
+    color: #555;
+    word-break: break-all;
+  }
+  .up-file-info[hidden] { display: none; }
+  .up-file-info-name { font-weight: 700; color: #333; }
+  .up-file-info-size { color: #888; font-size: 12px; margin-top: 4px; }
+
+  /* ---- STEP3：確認カード ---- */
+  .up-confirm-card {
+    background: #fff;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-card);
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .up-row {
+    display: flex;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--color-border);
+    gap: 12px;
+  }
+  .up-row:last-of-type { border-bottom: none; }
+  .up-row-label {
+    flex: 0 0 90px;
+    color: #666;
+    font-size: 13px;
+  }
+  .up-row-value {
+    flex: 1;
+    color: var(--color-text);
+    font-size: 15px;
+    font-weight: 500;
+    min-width: 0;
+    word-break: break-word;
+  }
+  .up-month-input {
+    width: 100%;
+    min-height: 40px;
+    padding: 6px 10px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-family: var(--font-body);
+    font-size: 15px;
+    background: #fff;
+  }
+  .up-month-input:focus {
+    outline: none;
+    border-color: var(--color-primary);
+  }
+
+  /* ---- STEP3：タイトル入力欄（任意・T-33） ---- */
+  .up-title-input {
+    width: 100%;
+    min-height: 40px;
+    padding: 6px 10px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-family: var(--font-body);
+    font-size: 15px;
+    background: #fff;
+  }
+  .up-title-input:focus {
+    outline: none;
+    border-color: var(--color-primary);
+  }
+
+  /* ---- STEP2：選択中ファイルメタ（件数・合計サイズ） ---- */
+  .up-files-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+    color: #757575;
+    margin: 0 0 12px;
+  }
+  .up-files-meta[hidden] { display: none; }
+  .up-files-count { font-weight: 700; color: var(--color-text); }
+
+  /* ---- STEP2：選択中ファイルグリッド ---- */
+  .up-files-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .up-files-grid[hidden] { display: none; }
+
+  .up-file-tile {
+    position: relative;
+    background: #FAFAFA;
+    border-radius: var(--radius);
+    padding: 10px 8px 8px;
+    box-shadow: var(--shadow-card);
+    text-align: center;
+  }
+  .up-file-remove {
+    position: absolute;
+    top: 4px; right: 4px;
+    width: 24px; height: 24px;
+    background: rgba(0,0,0,.6);
+    color: #fff;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    z-index: 2;
+  }
+  .up-file-remove:hover { background: rgba(0,0,0,.8); }
+  .up-file-remove i { width: 14px; height: 14px; }
+
+  .up-file-thumb {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    background: #fff;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    margin-bottom: 6px;
+  }
+  .up-file-thumb img {
+    width: 100%; height: 100%;
+    object-fit: cover;
+  }
+  .up-file-thumb .up-pdf-icon {
+    width: 36px;
+    height: 36px;
+    color: var(--color-secondary);
+  }
+  .up-file-thumb-msg {
+    font-size: 11px;
+    color: #999;
+    padding: 4px 6px;
+    text-align: center;
+  }
+
+  .up-file-name {
+    font-size: 11px;
+    color: #333;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-weight: 700;
+  }
+  .up-file-size {
+    font-size: 11px;
+    color: #888;
+    margin-top: 2px;
+  }
+
+  /* ---- STEP3：確認用ミニサムネ群 ---- */
+  .up-confirm-files {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+  .up-confirm-files[hidden] { display: none; }
+  .up-confirm-mini {
+    width: 64px;
+    height: 64px;
+    border-radius: 8px;
+    background: #FAFAFA;
+    box-shadow: var(--shadow-card);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  .up-confirm-mini img {
+    width: 100%; height: 100%;
+    object-fit: cover;
+  }
+  .up-confirm-mini i {
+    width: 24px;
+    height: 24px;
+    color: var(--color-secondary);
+  }
+
+  /* ---- STEP3：進捗バー ---- */
+  .up-progress-wrap {
+    margin: 20px 0;
+    text-align: center;
+  }
+  .up-progress-wrap[hidden] { display: none; }
+  .up-progress-text {
+    font-size: 14px;
+    color: var(--color-text);
+    margin: 0 0 10px;
+    font-weight: 700;
+  }
+  .up-progress-bar {
+    height: 10px;
+    background: #E0E0E0;
+    border-radius: 5px;
+    overflow: hidden;
+  }
+  .up-progress-fill {
+    height: 100%;
+    background: var(--color-primary);
+    width: 0%;
+    transition: width .25s ease;
+  }
+
+  /* ---- 確認カード hidden ヘルパ（保存中表示用） ---- */
+  .up-confirm-card[hidden] { display: none; }
+
+  /* ---- アクションボタン群 ---- */
+  .up-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 8px;
+  }
+  .up-actions .btn { flex: 1; }
+  .up-actions.is-hidden { display: none; }
+
+  /* ---- レスポンシブ：タブレット（768px+） ---- */
+  @media (min-width: 768px) {
+    .up-root {
+      max-width: 560px;
+    }
+    .up-step-bar { width: 36px; }
+  }
+
+  /* ---- レスポンシブ：PC（1024px+） ---- */
+  @media (min-width: 1024px) {
+    .up-root {
+      max-width: 600px;
+    }
+  }
+</style>
+
+<div class="up-root">
+  <h1 class="up-title">おたより登録</h1>
+
+  <!-- ステップインジケータ -->
+  <div class="up-stepper" aria-label="ステップ表示">
+    <span class="up-step-dot" id="up-dot-1">1</span>
+    <span class="up-step-bar"></span>
+    <span class="up-step-dot" id="up-dot-2">2</span>
+    <span class="up-step-bar"></span>
+    <span class="up-step-dot" id="up-dot-3">3</span>
+  </div>
+
+  <!-- ===== STEP1：子ども選択 ===== -->
+  <section class="up-step" id="up-step-1" aria-label="STEP1 子ども選択">
+    <h2 class="up-step-heading">どの子のおたよりですか？</h2>
+    <p class="up-step-desc">子どもを1人選んでください</p>
+
+    <!-- 子どもチップ -->
+    <div class="up-chips" id="up-chips" role="list"></div>
+
+    <!-- 子ども0人時の空状態 -->
+    <div class="up-empty" id="up-empty" hidden>
+      <p class="up-empty-msg">まず子どもを登録してください</p>
+      <button type="button" class="btn btn-primary" id="up-go-children">
+        <i data-lucide="users"></i>子どもを登録する
+      </button>
+    </div>
+
+    <!-- アクション：次へ -->
+    <div class="up-actions">
+      <button type="button" class="btn btn-primary" id="up-next-1" disabled>
+        次へ<i data-lucide="arrow-right"></i>
+      </button>
+    </div>
+  </section>
+
+  <!-- ===== STEP2：ファイル選択（複数枚・PDF対応） ===== -->
+  <section class="up-step" id="up-step-2" aria-label="STEP2 ファイル選択">
+    <h2 class="up-step-heading">画像・PDFを選んでください</h2>
+    <p class="up-step-desc">最大5枚まで・1枚あたり最大10MB</p>
+
+    <label class="up-file-btn" for="up-file">
+      <i data-lucide="upload-cloud" class="up-file-btn-icon"></i>
+      <span class="up-file-btn-label">画像・PDFを選ぶ</span>
+      <span class="up-file-btn-sub">タップしてファイルを選択 ・ 最大5枚 / 10MB／枚</span>
+    </label>
+    <input type="file" id="up-file" class="up-file-input"
+           accept="image/*,application/pdf" multiple>
+
+    <!-- 選択中ファイルメタ（件数・合計サイズ） -->
+    <div class="up-files-meta" id="up-files-meta" hidden>
+      <span class="up-files-count" id="up-files-count">0/5枚</span>
+      <span id="up-files-total"></span>
+    </div>
+
+    <!-- 選択中ファイルグリッド（JSで描画） -->
+    <div class="up-files-grid" id="up-files-grid" hidden></div>
+
+    <!-- アクション：戻る・次へ -->
+    <div class="up-actions">
+      <button type="button" class="btn btn-ghost" id="up-back-2">
+        <i data-lucide="arrow-left"></i>戻る
+      </button>
+      <button type="button" class="btn btn-primary" id="up-next-2" disabled>
+        次へ<i data-lucide="arrow-right"></i>
+      </button>
+    </div>
+  </section>
+
+  <!-- ===== STEP3：確認・保存（複数ファイル対応） ===== -->
+  <section class="up-step" id="up-step-3" aria-label="STEP3 確認・保存">
+    <h2 class="up-step-heading">この内容で保存しますか？</h2>
+    <p class="up-step-desc">対象年月を変えたい場合は下から選び直せます</p>
+
+    <!-- 確認カード（保存中は hidden） -->
+    <div class="up-confirm-card" id="up-confirm-card">
+      <div class="up-row">
+        <span class="up-row-label">お子さま</span>
+        <span class="up-row-value" id="up-confirm-child"></span>
+      </div>
+      <div class="up-row">
+        <span class="up-row-label">対象年月</span>
+        <span class="up-row-value">
+          <input type="month" id="up-month" class="up-month-input">
+        </span>
+      </div>
+      <div class="up-row">
+        <span class="up-row-label">タイトル（任意）</span>
+        <span class="up-row-value">
+          <input type="text" id="up-title" class="up-title-input" placeholder="例：運動会のお知らせ（任意）" maxlength="80" autocomplete="off">
+        </span>
+      </div>
+      <div class="up-row">
+        <span class="up-row-label">ファイル</span>
+        <span class="up-row-value" id="up-confirm-count">— 件</span>
+      </div>
+    </div>
+
+    <!-- 確認用ミニサムネ群（保存中は hidden） -->
+    <div class="up-confirm-files" id="up-confirm-files" hidden></div>
+
+    <!-- 保存進捗バー（保存開始時に hidden 解除） -->
+    <div class="up-progress-wrap" id="up-progress-wrap" hidden>
+      <p class="up-progress-text" id="up-progress-text">1/5枚保存中...</p>
+      <div class="up-progress-bar">
+        <div class="up-progress-fill" id="up-progress-fill"></div>
+      </div>
+    </div>
+
+    <!-- アクション：戻る・保存（保存中は is-hidden） -->
+    <div class="up-actions" id="up-step-3-actions">
+      <button type="button" class="btn btn-ghost" id="up-back-3">
+        <i data-lucide="arrow-left"></i>戻る
+      </button>
+      <button type="button" class="btn btn-primary" id="up-save">
+        <i data-lucide="save"></i>保存する
+      </button>
+    </div>
+  </section>
+</div>
+
+<script>
+(function() {
+  // =============================================
+  // 【おたより登録画面】3ステップフロー制御
+  // 同梱SPAのため即時実行関数で名前空間を閉じる
+  // =============================================
+
+  // ---- 状態 ----
+  // files は配列：{ id, base64Pure, mimeType, fileName, fileSize, isPdf, dataUrl }
+  var UploadPageState = {
+    children:     [],
+    currentStep:  1,
+    selectedChild: null,  // {id, name, order, createdDate}
+    files:        [],     // 最大 MAX_FILES 件
+    yearMonth:    '',     // 'YYYY-MM'
+    title:        '',     // 任意タイトル（T-33・空可）
+    loading:      false,
+    saving:       false,
+    progress: { done: 0, total: 0, success: 0, fail: 0 }
+  };
+
+  // ---- 定数 ----
+  var MAX_FILE_BYTES = 10 * 1024 * 1024;  // 1ファイルあたり 10MB
+  var MAX_FILES      = 5;                 // 一度に登録できる最大枚数
+  var PDF_MIME       = 'application/pdf';
+
+  // ---- DOM参照（init で確定） ----
+  var elChips, elEmpty, elGoChildren;
+  var elDot1, elDot2, elDot3;
+  var elStep1, elStep2, elStep3;
+  var btnNext1, btnBack2, btnNext2, btnBack3, btnSave;
+  var elFile, elFilesMeta, elFilesCount, elFilesTotal, elFilesGrid;
+  var elConfirmCard, elConfirmChild, elConfirmCount, elMonth, elTitle;
+  var elConfirmFiles;
+  var elProgressWrap, elProgressText, elProgressFill;
+  var elStep3Actions;
+
+  // =============================================
+  // 【補助】当月の 'YYYY-MM' を返す
+  // =============================================
+  function getCurrentYearMonth() {
+    try {
+      var now = new Date();
+      var y = now.getFullYear();
+      var m = now.getMonth() + 1;
+      return y + '-' + (m < 10 ? '0' + m : m);
+    } catch (e) {
+      console.error('getCurrentYearMonth エラー: ' + e);
+      return '';
+    }
+  }
+
+  // =============================================
+  // 【補助】バイト数を「123 KB / 4.5 MB」形式で返す
+  // =============================================
+  function formatBytes(bytes) {
+    try {
+      var n = Number(bytes) || 0;
+      if (n < 1024) return n + ' B';
+      if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+      return (n / 1024 / 1024).toFixed(1) + ' MB';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  // =============================================
+  // 【ステップ遷移】1～3 に切替＋インジケータ更新
+  // =============================================
+  function goToStep(n) {
+    try {
+      UploadPageState.currentStep = n;
+
+      // セクション切替
+      elStep1.classList.toggle('is-active', n === 1);
+      elStep2.classList.toggle('is-active', n === 2);
+      elStep3.classList.toggle('is-active', n === 3);
+
+      // インジケータ更新（完了済み=is-done、現在=is-active、未来=なし）
+      var dots = [elDot1, elDot2, elDot3];
+      for (var i = 0; i < dots.length; i++) {
+        var step = i + 1;
+        dots[i].classList.remove('is-active');
+        dots[i].classList.remove('is-done');
+        if (step < n)        dots[i].classList.add('is-done');
+        else if (step === n) dots[i].classList.add('is-active');
+      }
+
+      // STEP3 突入時：対象年月を当月で初期化（未設定時のみ）＋確認カードを更新
+      if (n === 3) {
+        // 保存中UIを通常UIに戻す（再進入時のリセット）
+        exitSavingMode();
+
+        if (!elMonth.value) {
+          var current = getCurrentYearMonth();
+          UploadPageState.yearMonth = current;
+          elMonth.value = current;
+        }
+        // 確認カードの内容反映
+        if (UploadPageState.selectedChild) {
+          elConfirmChild.textContent = UploadPageState.selectedChild.name;
+        }
+        elConfirmCount.textContent = UploadPageState.files.length + ' 件';
+        // ミニサムネ群
+        renderConfirmFiles();
+      }
+
+      // ステップ切替後は動的アイコンを再描画
+      if (window.lucide) lucide.createIcons();
+    } catch (e) {
+      console.error('goToStep エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【STEP1描画】子どもチップ群 or 空状態
+  // =============================================
+  function renderChildren() {
+    try {
+      var list = UploadPageState.children;
+      elChips.innerHTML = '';
+
+      if (list.length === 0) {
+        // 0人時：空状態を表示・「次へ」disabled維持
+        elEmpty.hidden = false;
+        btnNext1.disabled = true;
+        if (window.lucide) lucide.createIcons();
+        return;
+      }
+
+      elEmpty.hidden = true;
+      for (var i = 0; i < list.length; i++) {
+        var c = list[i];
+        var chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'up-chip';
+        chip.setAttribute('data-child-id', c.id);
+        chip.setAttribute('role', 'listitem');
+        // チェックアイコン（is-selected の時だけCSSで表示）
+        var check = document.createElement('i');
+        check.setAttribute('data-lucide', 'check');
+        check.className = 'up-chip-check';
+        chip.appendChild(check);
+        // 名前テキスト
+        var nameSpan = document.createElement('span');
+        nameSpan.textContent = c.name;
+        chip.appendChild(nameSpan);
+        if (UploadPageState.selectedChild && UploadPageState.selectedChild.id === c.id) {
+          chip.classList.add('is-selected');
+        }
+        chip.addEventListener('click', onChipClick);
+        elChips.appendChild(chip);
+      }
+
+      // 選択済みなら「次へ」活性化
+      btnNext1.disabled = !UploadPageState.selectedChild;
+
+      // チップ内 check アイコンを描画
+      if (window.lucide) lucide.createIcons();
+    } catch (e) {
+      console.error('renderChildren エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【STEP1】チップクリック → 選択
+  // =============================================
+  function onChipClick() {
+    try {
+      var id = this.getAttribute('data-child-id');
+      var matched = null;
+      for (var i = 0; i < UploadPageState.children.length; i++) {
+        if (UploadPageState.children[i].id === id) {
+          matched = UploadPageState.children[i];
+          break;
+        }
+      }
+      UploadPageState.selectedChild = matched;
+      renderChildren();
+    } catch (e) {
+      console.error('onChipClick エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【STEP2】ファイル選択 → append モードで配列に追加
+  // 複数選択可・最大5枚・PDF対応
+  // =============================================
+  function onFileChange(ev) {
+    try {
+      var fileList = ev.target.files;
+      if (!fileList || fileList.length === 0) return;
+      processSelectedFiles(fileList);
+      // 同じファイルを連続選択できるよう input 値をクリア
+      ev.target.value = '';
+    } catch (e) {
+      console.error('onFileChange エラー: ' + e);
+      showToast('ファイルの読み込みに失敗しました', 'error');
+    }
+  }
+
+  // =============================================
+  // 【補助】FileList を順次 base64 化して state.files に追加
+  // ・append モード（既存ファイルに追加）
+  // ・残り枠を超える分は破棄＋トースト
+  // ・個別サイズ超過は除外＋トースト
+  // =============================================
+  function processSelectedFiles(fileList) {
+    try {
+      var current = UploadPageState.files.length;
+      var remaining = MAX_FILES - current;
+      if (remaining <= 0) {
+        showToast('既に最大' + MAX_FILES + '枚選択しています。不要なファイルを × で外してください', 'error');
+        return;
+      }
+
+      // 残り枠でカット（先頭から）
+      var picked = [];
+      for (var i = 0; i < fileList.length && picked.length < remaining; i++) {
+        picked.push(fileList[i]);
+      }
+      if (fileList.length > remaining) {
+        showToast('最大' + MAX_FILES + '枚まで登録できます。最初の' + remaining + '枚を追加します。', 'info');
+      }
+
+      // 全部処理が終わったら描画更新
+      var processed = 0;
+      function checkDone() {
+        processed++;
+        if (processed === picked.length) {
+          renderFilesGrid();
+          btnNext2.disabled = (UploadPageState.files.length === 0);
+        }
+      }
+
+      // 各ファイルを並列に FileReader でbase64化（順序は保証しないが UI 上は append 順）
+      for (var j = 0; j < picked.length; j++) (function(file) {
+        // 個別サイズ検証
+        if (file.size > MAX_FILE_BYTES) {
+          showToast(file.name + ' は10MBを超えているため除外しました', 'error');
+          checkDone();
+          return;
+        }
+        var reader = new FileReader();
+        reader.onload = function(e) {
+          try {
+            var dataUrl = String(e.target.result || '');
+            var commaIdx = dataUrl.indexOf(',');
+            var pure = (commaIdx !== -1) ? dataUrl.substring(commaIdx + 1) : dataUrl;
+            var mime = file.type || 'application/octet-stream';
+            UploadPageState.files.push({
+              id:         'f_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+              base64Pure: pure,
+              mimeType:   mime,
+              fileName:   file.name,
+              fileSize:   file.size,
+              isPdf:      (mime === PDF_MIME),
+              dataUrl:    dataUrl
+            });
+          } catch (errInner) {
+            console.error('FileReader onload エラー: ' + errInner);
+            showToast(file.name + ' の読み込みに失敗しました', 'error');
+          } finally {
+            checkDone();
+          }
+        };
+        reader.onerror = function() {
+          showToast(file.name + ' の読み込みに失敗しました', 'error');
+          checkDone();
+        };
+        reader.readAsDataURL(file);
+      })(picked[j]);
+    } catch (e) {
+      console.error('processSelectedFiles エラー: ' + e);
+      showToast('ファイルの読み込みに失敗しました', 'error');
+    }
+  }
+
+  // =============================================
+  // 【STEP2描画】選択中ファイルグリッド
+  // 0件 → グリッド/メタを hidden 化・「次へ」disable
+  // =============================================
+  function renderFilesGrid() {
+    try {
+      var list = UploadPageState.files;
+      elFilesGrid.innerHTML = '';
+
+      if (list.length === 0) {
+        elFilesGrid.hidden = true;
+        elFilesMeta.hidden = true;
+        btnNext2.disabled = true;
+        return;
+      }
+
+      elFilesGrid.hidden = false;
+      elFilesMeta.hidden = false;
+
+      // 件数・合計サイズ
+      var totalBytes = 0;
+      for (var i = 0; i < list.length; i++) totalBytes += list[i].fileSize;
+      elFilesCount.textContent = list.length + '/' + MAX_FILES + '枚';
+      elFilesTotal.textContent = '合計 ' + formatBytes(totalBytes);
+
+      // 各タイル
+      for (var k = 0; k < list.length; k++) {
+        elFilesGrid.appendChild(buildFileTile(list[k]));
+      }
+
+      btnNext2.disabled = false;
+
+      // Lucide 再描画（× / file-text を変換するため必須）
+      if (window.lucide) lucide.createIcons();
+    } catch (e) {
+      console.error('renderFilesGrid エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【STEP2描画】1件分のファイルタイル要素を組み立てる
+  // =============================================
+  function buildFileTile(f) {
+    try {
+      var tile = document.createElement('div');
+      tile.className = 'up-file-tile';
+      tile.setAttribute('data-file-id', f.id);
+
+      // × ボタン
+      var removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'up-file-remove';
+      removeBtn.setAttribute('aria-label', f.fileName + ' を削除');
+      removeBtn.innerHTML = '<i data-lucide="x"></i>';
+      removeBtn.addEventListener('click', function() { removeFile(f.id); });
+      tile.appendChild(removeBtn);
+
+      // サムネ
+      var thumb = document.createElement('div');
+      thumb.className = 'up-file-thumb';
+      if (f.isPdf) {
+        // PDF：file-text アイコン
+        thumb.innerHTML = '<i data-lucide="file-text" class="up-pdf-icon"></i>';
+      } else {
+        // 画像：img プレビュー（失敗時は文字フォールバック）
+        var img = document.createElement('img');
+        img.alt = 'プレビュー';
+        img.onerror = function() {
+          thumb.innerHTML = '';
+          var msg = document.createElement('div');
+          msg.className = 'up-file-thumb-msg';
+          msg.textContent = 'プレビュー不可';
+          thumb.appendChild(msg);
+        };
+        img.src = f.dataUrl;
+        thumb.appendChild(img);
+      }
+      tile.appendChild(thumb);
+
+      // ファイル名
+      var nameEl = document.createElement('div');
+      nameEl.className = 'up-file-name';
+      nameEl.textContent = f.fileName || '';
+      nameEl.title = f.fileName || '';
+      tile.appendChild(nameEl);
+
+      // サイズ
+      var sizeEl = document.createElement('div');
+      sizeEl.className = 'up-file-size';
+      sizeEl.textContent = formatBytes(f.fileSize);
+      tile.appendChild(sizeEl);
+
+      return tile;
+    } catch (e) {
+      console.error('buildFileTile エラー: ' + e);
+      return document.createElement('div');
+    }
+  }
+
+  // =============================================
+  // 【STEP2】ファイル削除（× ボタン）
+  // =============================================
+  function removeFile(fileId) {
+    try {
+      var list = UploadPageState.files;
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].id === fileId) {
+          list.splice(i, 1);
+          break;
+        }
+      }
+      renderFilesGrid();
+    } catch (e) {
+      console.error('removeFile エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【STEP3描画】確認用ミニサムネ群
+  // =============================================
+  function renderConfirmFiles() {
+    try {
+      var list = UploadPageState.files;
+      elConfirmFiles.innerHTML = '';
+
+      if (list.length === 0) {
+        elConfirmFiles.hidden = true;
+        return;
+      }
+      elConfirmFiles.hidden = false;
+
+      for (var i = 0; i < list.length; i++) {
+        var f = list[i];
+        var mini = document.createElement('div');
+        mini.className = 'up-confirm-mini';
+
+        if (f.isPdf) {
+          mini.innerHTML = '<i data-lucide="file-text"></i>';
+        } else {
+          var img = document.createElement('img');
+          img.alt = '';
+          img.onerror = function() {
+            this.parentNode.innerHTML = '<i data-lucide="image-off"></i>';
+            if (window.lucide) lucide.createIcons();
+          };
+          img.src = f.dataUrl;
+          mini.appendChild(img);
+        }
+        elConfirmFiles.appendChild(mini);
+      }
+
+      if (window.lucide) lucide.createIcons();
+    } catch (e) {
+      console.error('renderConfirmFiles エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【STEP3】対象年月入力イベント
+  // =============================================
+  function onMonthChange() {
+    try {
+      UploadPageState.yearMonth = elMonth.value || '';
+    } catch (e) {
+      console.error('onMonthChange エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【STEP3】保存ボタン → 複数ファイルを順次 addNotice 呼び出し
+  // 1枚失敗しても次を継続・完了時に成功/失敗を集計してトースト
+  // =============================================
+  function onSave() {
+    try {
+      // バリデーション
+      var child = UploadPageState.selectedChild;
+      var ym    = UploadPageState.yearMonth || elMonth.value;
+      if (!child) {
+        showToast('子どもが選択されていません', 'error');
+        goToStep(1);
+        return;
+      }
+      if (!ym || !/^\d{4}-\d{2}$/.test(ym)) {
+        showToast('対象年月を選択してください', 'error');
+        return;
+      }
+      if (!UploadPageState.files || UploadPageState.files.length === 0) {
+        showToast('ファイルが選択されていません', 'error');
+        goToStep(2);
+        return;
+      }
+
+      // タイトル（任意・空可・T-33）：state へ反映して saveNext に渡す
+      var titleVal = (elTitle && elTitle.value) ? String(elTitle.value).trim() : '';
+      UploadPageState.title = titleVal;
+
+      // 保存中UIへ切替
+      enterSavingMode();
+      UploadPageState.progress = {
+        done: 0,
+        total: UploadPageState.files.length,
+        success: 0,
+        fail: 0
+      };
+      updateProgress(0, UploadPageState.progress.total);
+
+      // 1件目から順次開始（タイトルは全枚共通）
+      saveNext(0, child, ym, titleVal);
+    } catch (e) {
+      console.error('onSave エラー: ' + e);
+      exitSavingMode();
+      showToast('保存に失敗しました', 'error');
+    }
+  }
+
+  // =============================================
+  // 【内部】index 番目のファイルを保存して次へ
+  // 1枚失敗しても次を継続する（GAS失敗は握って progress.fail++）
+  // =============================================
+  function saveNext(idx, child, ym, title) {
+    try {
+      var st = UploadPageState;
+      if (idx >= st.files.length) {
+        finishSave();
+        return;
+      }
+      // 進捗を 1-indexed で表示
+      updateProgress(idx + 1, st.files.length);
+
+      var f = st.files[idx];
+      // タイトルは全枚共通で同じ値を渡す（任意・空文字も許容・T-33）
+      callGAS('addNotice',
+        [child.id, child.name, ym, f.base64Pure, f.mimeType, f.fileName, title || ''],
+        function() {
+          st.progress.success++;
+          st.progress.done++;
+          saveNext(idx + 1, child, ym, title);
+        },
+        function(err) {
+          console.error('addNotice 失敗(' + f.fileName + '): ' + ((err && err.message) ? err.message : err));
+          st.progress.fail++;
+          st.progress.done++;
+          saveNext(idx + 1, child, ym, title);  // 失敗しても次へ
+        }
+      );
+    } catch (e) {
+      console.error('saveNext エラー: ' + e);
+      // 致命的エラー → 中断して通常UIへ
+      exitSavingMode();
+      showToast('保存に失敗しました', 'error');
+    }
+  }
+
+  // =============================================
+  // 【内部】全件処理後の集計トースト＋画面遷移
+  // 全成功：「N枚保存しました」→ 一覧へ
+  // 部分成功：「N枚保存しました（M枚失敗）」→ 一覧へ
+  // 全失敗：「保存に失敗しました」→ STEP3 のまま再試行可能
+  // =============================================
+  function finishSave() {
+    try {
+      var p = UploadPageState.progress;
+      var msg;
+      var type = 'success';
+      if (p.fail === 0) {
+        msg = p.success + '枚保存しました';
+      } else if (p.success === 0) {
+        msg = '保存に失敗しました';
+        type = 'error';
+      } else {
+        msg = p.success + '枚保存しました（' + p.fail + '枚失敗）';
+      }
+      showToast(msg, type);
+
+      UploadPageState.saving = false;
+
+      if (p.success > 0) {
+        // 状態リセット → 一覧へ遷移
+        resetState();
+        renderChildren();
+        goToStep(1);
+        showPage('list');
+      } else {
+        // 全失敗：UIを元に戻して再試行可能に
+        exitSavingMode();
+      }
+    } catch (e) {
+      console.error('finishSave エラー: ' + e);
+      exitSavingMode();
+    }
+  }
+
+  // =============================================
+  // 【内部】進捗バー更新（「N/M枚保存中...」＋ 塗り%）
+  // current=0 のときは「0/M枚保存中...」相当の初期表示
+  // =============================================
+  function updateProgress(current, total) {
+    try {
+      if (!elProgressText || !elProgressFill) return;
+      var c = Math.max(0, Number(current) || 0);
+      var t = Math.max(1, Number(total) || 1);
+      elProgressText.textContent = c + '/' + t + '枚保存中...';
+      var pct = Math.min(100, Math.round((c / t) * 100));
+      elProgressFill.style.width = pct + '%';
+    } catch (e) {
+      console.error('updateProgress エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【内部】保存中モード ON：確認カード/ミニサムネ hidden・進捗バー表示・ボタン非表示
+  // =============================================
+  function enterSavingMode() {
+    try {
+      UploadPageState.saving = true;
+      if (elConfirmCard)   elConfirmCard.hidden  = true;
+      if (elConfirmFiles)  elConfirmFiles.hidden = true;
+      if (elProgressWrap)  elProgressWrap.hidden = false;
+      if (elStep3Actions)  elStep3Actions.classList.add('is-hidden');
+    } catch (e) {
+      console.error('enterSavingMode エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【内部】保存中モード OFF：通常 STEP3 表示に戻す
+  // =============================================
+  function exitSavingMode() {
+    try {
+      UploadPageState.saving = false;
+      if (elProgressWrap)  elProgressWrap.hidden = true;
+      if (elConfirmCard)   elConfirmCard.hidden  = false;
+      if (elConfirmFiles)  elConfirmFiles.hidden = (UploadPageState.files.length === 0);
+      if (elStep3Actions)  elStep3Actions.classList.remove('is-hidden');
+      // 進捗バーをリセット
+      if (elProgressFill)  elProgressFill.style.width = '0%';
+    } catch (e) {
+      console.error('exitSavingMode エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【リセット】選択状態・ファイル群・年月をクリア
+  // children は保持（再取得は load() 側）
+  // =============================================
+  function resetState() {
+    try {
+      UploadPageState.selectedChild = null;
+      UploadPageState.files         = [];
+      UploadPageState.yearMonth     = '';
+      UploadPageState.title         = '';
+      UploadPageState.saving        = false;
+      UploadPageState.progress      = { done: 0, total: 0, success: 0, fail: 0 };
+
+      // UI もクリア
+      if (elFile) elFile.value = '';
+      if (elFilesGrid) { elFilesGrid.innerHTML = ''; elFilesGrid.hidden = true; }
+      if (elFilesMeta) elFilesMeta.hidden = true;
+      if (elFilesCount) elFilesCount.textContent = '0/' + MAX_FILES + '枚';
+      if (elFilesTotal) elFilesTotal.textContent = '';
+      if (elConfirmFiles) { elConfirmFiles.innerHTML = ''; elConfirmFiles.hidden = true; }
+      if (elConfirmCount) elConfirmCount.textContent = '— 件';
+      if (elProgressWrap) elProgressWrap.hidden = true;
+      if (elProgressFill) elProgressFill.style.width = '0%';
+      if (elStep3Actions) elStep3Actions.classList.remove('is-hidden');
+      if (elConfirmCard) elConfirmCard.hidden = false;
+      if (elMonth) elMonth.value = '';
+      if (elTitle) elTitle.value = '';
+      if (btnNext1) btnNext1.disabled = true;
+      if (btnNext2) btnNext2.disabled = true;
+    } catch (e) {
+      console.error('resetState エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【ロード】getChildren を呼び出して STEP1 を描画
+  // =============================================
+  function load() {
+    try {
+      callGAS('getChildren', [], function(result) {
+        UploadPageState.children = result || [];
+        renderChildren();
+      }, function(err) {
+        showToast('子ども一覧の取得に失敗しました', 'error');
+      });
+    } catch (e) {
+      console.error('load エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【ページ再訪問時】リセット＋再ロード＋STEP1へ
+  // BottomNav・SideNav の「登録」クリックで発火
+  // =============================================
+  function onEnterPage() {
+    try {
+      // 保存処理中はナビ操作による中断を抑止する
+      if (UploadPageState.saving) return;
+      resetState();
+      goToStep(1);
+      load();
+    } catch (e) {
+      console.error('onEnterPage エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【初期化】DOM参照取得・イベント結線・初回ロード
+  // =============================================
+  function init() {
+    try {
+      // DOM参照
+      elChips           = document.getElementById('up-chips');
+      elEmpty           = document.getElementById('up-empty');
+      elGoChildren      = document.getElementById('up-go-children');
+      elDot1            = document.getElementById('up-dot-1');
+      elDot2            = document.getElementById('up-dot-2');
+      elDot3            = document.getElementById('up-dot-3');
+      elStep1           = document.getElementById('up-step-1');
+      elStep2           = document.getElementById('up-step-2');
+      elStep3           = document.getElementById('up-step-3');
+      btnNext1          = document.getElementById('up-next-1');
+      btnBack2          = document.getElementById('up-back-2');
+      btnNext2          = document.getElementById('up-next-2');
+      btnBack3          = document.getElementById('up-back-3');
+      btnSave           = document.getElementById('up-save');
+      elFile            = document.getElementById('up-file');
+      // STEP2 新セレクタ
+      elFilesMeta       = document.getElementById('up-files-meta');
+      elFilesCount      = document.getElementById('up-files-count');
+      elFilesTotal      = document.getElementById('up-files-total');
+      elFilesGrid       = document.getElementById('up-files-grid');
+      // STEP3 新セレクタ
+      elConfirmCard     = document.getElementById('up-confirm-card');
+      elConfirmChild    = document.getElementById('up-confirm-child');
+      elConfirmCount    = document.getElementById('up-confirm-count');
+      elMonth           = document.getElementById('up-month');
+      elTitle           = document.getElementById('up-title');
+      elConfirmFiles    = document.getElementById('up-confirm-files');
+      elProgressWrap    = document.getElementById('up-progress-wrap');
+      elProgressText    = document.getElementById('up-progress-text');
+      elProgressFill    = document.getElementById('up-progress-fill');
+      elStep3Actions    = document.getElementById('up-step-3-actions');
+
+      // STEP遷移ボタン
+      btnNext1.addEventListener('click', function() {
+        if (!UploadPageState.selectedChild) return;
+        goToStep(2);
+      });
+      btnBack2.addEventListener('click', function() { goToStep(1); });
+      btnNext2.addEventListener('click', function() {
+        if (!UploadPageState.files || UploadPageState.files.length === 0) return;
+        goToStep(3);
+      });
+      btnBack3.addEventListener('click', function() { goToStep(2); });
+      btnSave.addEventListener('click', onSave);
+
+      // ファイル選択
+      elFile.addEventListener('change', onFileChange);
+
+      // 対象年月変更
+      elMonth.addEventListener('change', onMonthChange);
+
+      // 子ども0人時の「子どもを登録する」→ 子ども管理画面へ
+      elGoChildren.addEventListener('click', function() {
+        showPage('children');
+      });
+
+      // BottomNav・SideNav の「登録」クリックで状態リセット＋再ロード
+      var uploadBtns = document.querySelectorAll('[data-nav-page="upload"]');
+      for (var i = 0; i < uploadBtns.length; i++) {
+        uploadBtns[i].addEventListener('click', onEnterPage);
+      }
+
+      // 初期表示：STEP1
+      goToStep(1);
+      load();
+    } catch (e) {
+      console.error('upload.html init エラー: ' + e);
+    }
+  }
+
+  // DOM準備完了後に初期化
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>

@@ -1,0 +1,2484 @@
+<!-- =============================================
+     【notices.html】おたより一覧画面（T-12 + T-13 / 画像取得方式：GAS base64）
+     対応機能：F-08 おたより一覧 / F-09 おたより拡大表示
+     ・「すべて」＋子どもタブの折り返しチップで切替
+     ・月別グループ（YYYY年M月）でサムネイルグリッド表示
+     ・サムネタップで拡大モーダル（画像・子ども名・年月・登録日時）
+     ・「Driveで開く」リンク（fileUrl・新タブ）
+     ・画像は UIService.getNoticeImage(fileId) で GAS から base64 取得して表示
+       （Drive サムネURL の iframe 表示不可問題への対策）
+     ・順次取得キュー（同時1件）＋ グローバルキャッシュ imageCache[fileId]
+     ・キャッシュ20件超でユーザに整理を促す警告バナー表示
+     ・全 google.script.run は callGAS 経由（withFailureHandler 自動付与）
+     ・スマホ／タブレット／PC のレスポンシブ対応
+============================================= -->
+
+<style>
+  /* ---- ルート ---- */
+  .nt-root {
+    width: 100%;
+    margin: 0 auto;
+    overflow-x: hidden;
+  }
+
+  /* ---- ヘッダー ---- */
+  .nt-title {
+    font-family: var(--font-heading);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    font-size: 24px;
+    margin: 0 0 20px;
+  }
+
+  /* ---- キャッシュバナー（画像メモリ過多警告） ---- */
+  .nt-cache-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    background: var(--color-warning);
+    color: #333333;
+    border-radius: var(--radius);
+    padding: 10px 14px;
+    margin: 0 0 16px;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .nt-cache-banner[hidden] { display: none; }
+  .nt-cache-banner-msg { flex: 1; }
+  .nt-cache-banner-close {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: #333333;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px;
+  }
+  .nt-cache-banner-close i { width: 18px; height: 18px; }
+
+  /* ---- 子ども別タブ（折り返しチップ） ---- */
+  .nt-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0 0 20px;
+  }
+  .nt-tab {
+    display: inline-flex;
+    align-items: center;
+    padding: 8px 18px;
+    border-radius: var(--radius-pill);
+    background: var(--color-surface);
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.2;
+    cursor: pointer;
+    transition: background .15s, color .15s, border-color .15s;
+  }
+  .nt-tab:hover { background: #FAFAFA; }
+  .nt-tab.is-selected {
+    /* 子ども別バッジカラー：選択中タブの背景に --child-color を反映（T-32） */
+    background: var(--child-color, var(--color-primary));
+    color: #fff;
+    border-color: var(--child-color, var(--color-primary));
+    font-weight: 700;
+  }
+  .nt-tab.is-selected:hover { opacity: .92; }
+
+  /* ---- 月フィルター（T-33c：プルダウン化） ---- */
+  .nt-month-filter {
+    margin: 0 0 20px;
+  }
+  .nt-month-filter[hidden] { display: none; }
+  .nt-month-select {
+    width: auto;
+    min-width: 160px;
+    padding: 6px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    background: var(--color-surface);
+    color: var(--color-text);
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.4;
+    cursor: pointer;
+    transition: border-color .15s;
+  }
+  .nt-month-select:focus {
+    outline: none;
+    border-color: var(--color-primary);
+  }
+
+  /* ---- 月別グループ ---- */
+  .nt-group { margin-bottom: 28px; }
+  .nt-group-heading {
+    font-family: var(--font-heading);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    font-size: 16px;
+    color: var(--color-text);
+    margin: 0 0 14px;
+    padding: 4px 0 4px 12px;
+    border-left: 3px solid var(--color-primary);
+    line-height: 1.4;
+  }
+
+  /* ---- サムネイルグリッド ---- */
+  .nt-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  .nt-item {
+    background: var(--color-surface);
+    border-radius: 16px;
+    box-shadow: 0 2px 16px rgba(0,0,0,.06);
+    overflow: hidden;
+    cursor: pointer;
+    transition: transform .1s ease, box-shadow .15s ease;
+  }
+  .nt-item:hover { box-shadow: 0 6px 20px rgba(0,0,0,.08); }
+  .nt-item:active { transform: scale(.98); }
+
+  .nt-thumb-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    background: #F5F5F5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  .nt-thumb {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .nt-thumb[hidden] { display: none; }
+  .nt-thumb-fallback {
+    color: #999;
+    font-size: 12px;
+    text-align: center;
+    padding: 8px;
+  }
+  .nt-thumb-fallback i { width: 28px; height: 28px; display: block; margin: 0 auto 4px; }
+  .nt-thumb-fallback[hidden] { display: none; }
+
+  /* ---- お気に入りバッジ：丸背景は廃止／ブックマーク形状そのもので表現
+     ・SVGの fill をピンクに、stroke を白に設定して「白枠・ピンク中身」のブックマーク
+     ・drop-shadow でブックマーク輪郭に沿った柔らかい影
+     ・現在より少し大きく（24→28px）して視認性アップ */
+  .nt-thumb-pin-badge {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    display: block;
+    z-index: 3;
+    pointer-events: none;
+    filter: drop-shadow(0 3px 6px rgba(255,77,143,.30));
+    line-height: 0;
+  }
+  .nt-thumb-pin-badge i,
+  .nt-thumb-pin-badge svg {
+    width: 28px;
+    height: 28px;
+    color: var(--color-accent);
+  }
+  /* Lucide が <i> を <svg> に変換した後、SVG内パスをピンク塗り＋白枠化 */
+  .nt-thumb-pin-badge svg {
+    fill: var(--color-accent);
+    stroke: #FFFFFF;
+    stroke-width: 2;
+    stroke-linejoin: round;
+    overflow: visible;
+  }
+
+  /* ---- ブックマークセクション見出し（左ボーダー＋薄ピンク背景で差別化） ---- */
+  .nt-group-heading-pin {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--color-accent-soft);
+    border-left: 3px solid var(--color-accent);
+    padding: 10px 14px;
+    border-radius: 0 8px 8px 0;
+    margin-bottom: 14px;
+  }
+  .nt-group-heading-pin i { width: 18px; height: 18px; color: var(--color-accent); }
+  .nt-group-heading-pin span { font-weight: 700; color: var(--color-text); }
+
+  /* ---- ブックマークカード強調：ピン留め中は薄ピンクの背景＋ピンクの細枠 ---- */
+  .nt-item.is-pinned {
+    background: linear-gradient(180deg, var(--color-accent-soft) 0%, #FFFFFF 60%);
+    box-shadow: 0 4px 20px rgba(255,77,143,.15);
+    outline: 1px solid var(--color-accent-soft);
+  }
+  .nt-item.is-pinned:hover {
+    box-shadow: var(--shadow-accent);
+  }
+
+  /* ---- PDF サムネ（file-text アイコン＋PDFラベル・薄オレンジ背景） ---- */
+  .nt-thumb-pdf {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    background: #FFF3E0;
+    color: var(--color-primary);
+  }
+  .nt-thumb-pdf i { width: 36px; height: 36px; }
+  .nt-thumb-pdf-label {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: .08em;
+    color: var(--color-primary);
+  }
+  /* canvas描画完了後：アイコンとラベルを隠す（インラインスタイル禁止のためクラス制御） */
+  .nt-thumb-pdf.is-rendered i,
+  .nt-thumb-pdf.is-rendered .nt-thumb-pdf-label { display: none; }
+  /* PDF 1ページ目描画用 canvas（薄オレンジ枠の中央に表示） */
+  .nt-thumb-canvas {
+    display: block;
+    max-width: 100%;
+    max-height: 100%;
+    background: #fff;
+  }
+  .nt-thumb-canvas[hidden] { display: none; }
+
+  /* ---- モーダル内 PDF 表示（canvas で PDF.js 描画） ---- */
+  /* PCのChromeで iframe+Blob URL がブロックされる問題への対策 */
+  .nt-modal-pdf-canvas {
+    display: block;
+    max-width: 100%;
+    max-height: 75vh;
+    width: auto;
+    height: auto;
+    margin: 0 auto;
+    background: #fff;
+    border-radius: 8px;
+  }
+  .nt-modal-pdf-canvas[hidden] { display: none; }
+  .nt-modal-pdf-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    color: #999;
+    gap: 8px;
+  }
+  .nt-modal-pdf-loading[hidden] { display: none; }
+
+  /* ---- サムネ読み込み中プレースホルダ ---- */
+  .nt-thumb-loading {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    color: #999;
+    font-size: 11px;
+    gap: 4px;
+    pointer-events: none;
+  }
+  .nt-thumb-loading[hidden] { display: none; }
+  .nt-thumb-loading i { width: 22px; height: 22px; }
+
+  /* ---- スピナー回転（モーダルローディングと共用） ---- */
+  .nt-spin {
+    animation: nt-spin 1s linear infinite;
+  }
+  @keyframes nt-spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+
+  /* ---- モーダル読み込み中表示 ---- */
+  .nt-modal-img-loading {
+    color: #757575;
+    font-size: 14px;
+    padding: 48px 16px;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  .nt-modal-img-loading[hidden] { display: none; }
+  .nt-modal-img-loading i { width: 22px; height: 22px; }
+
+  /* ---- ページ全体ローディング（一覧再ロード中の差し替え用） ---- */
+  .nt-page-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 0;
+    color: #999;
+    gap: 12px;
+  }
+  .nt-page-loading[hidden] { display: none; }
+  .nt-page-loading i { width: 28px; height: 28px; }
+  .nt-page-loading p { margin: 0; font-size: 13px; }
+
+  .nt-meta {
+    padding: 10px 12px;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  /* サムネ下の子ども名ピル（色は --child-color で切替・T-32） */
+  .nt-meta-child {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    /* 子ども別バッジカラー：背景に --child-color を反映 */
+    background: var(--child-color, var(--color-text-muted));
+    color: #fff;
+    border-radius: var(--radius-pill);
+    padding: 3px 10px 3px 4px;
+    font-family: var(--font-body);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    line-height: 1.4;
+    max-width: 100%;
+  }
+  .nt-meta-child.is-no-avatar { padding: 3px 10px; }
+  .nt-meta-child-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+
+  /* バッジ内の小アバター（任意・存在する子のみ） */
+  .nt-meta-child-avatar,
+  .nt-meta-child-avatar-ph {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    flex: 0 0 16px;
+    object-fit: cover;
+    background: rgba(255,255,255,.30);
+    display: inline-block;
+  }
+  .nt-meta-child-avatar { background: #FFFFFF; }
+  .nt-meta-at {
+    color: var(--color-text-muted);
+    margin-top: 6px;
+  }
+  /* タイトル（任意・T-33・2行までで省略） */
+  .nt-meta-title {
+    margin-top: 4px;
+    color: var(--color-text);
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.3;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
+
+  /* ---- 空状態 ---- */
+  .nt-empty {
+    text-align: center;
+    padding: 48px 16px;
+    color: #666;
+  }
+  .nt-empty[hidden] { display: none; }
+  .nt-empty-msg {
+    font-size: 14px;
+    margin: 0 0 16px;
+    line-height: 1.6;
+  }
+  .nt-empty .btn { display: inline-flex; }
+
+  /* ---- 拡大モーダル（T-24：フルスクリーン化） ---- */
+  .nt-modal {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: stretch;
+    justify-content: stretch;
+    padding: 0;
+    z-index: 300;
+  }
+  .nt-modal.is-open { display: flex; }
+  .nt-modal-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, .85);
+    cursor: pointer;
+  }
+  .nt-modal-card {
+    position: relative;
+    background: #fff;
+    border-radius: 0;
+    padding: 16px;
+    width: 100%;
+    max-width: 100%;
+    height: 100vh;
+    max-height: 100vh;
+    overflow-y: auto;
+    box-shadow: none;
+    z-index: 1;
+    padding-top: 60px;     /* 上部の閉じる/インジケーター用余白 */
+  }
+  .nt-modal-close {
+    position: absolute;
+    top: 10px; right: 10px;
+    width: 36px; height: 36px;
+    background: rgba(255,255,255,.9);
+    border: 1px solid #ddd;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 2;
+    color: #555;
+  }
+  .nt-modal-close i { width: 18px; height: 18px; }
+  .nt-modal-close:hover { background: #fff; }
+
+  /* インジケーター（例：3 / 10）：左上のピル */
+  .nt-modal-indicator {
+    position: absolute;
+    top: 12px;
+    left: 16px;
+    height: 32px;
+    padding: 0 14px;
+    background: rgba(0, 0, 0, .55);
+    color: #fff;
+    border-radius: 999px;
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    z-index: 2;
+    user-select: none;
+  }
+  .nt-modal-indicator[hidden] { display: none; }
+
+  .nt-modal-img-wrap {
+    background: #FAFAFA;
+    border-radius: 12px;
+    padding: 8px;
+    margin-bottom: 16px;
+    text-align: center;
+    min-height: 120px;
+  }
+  .nt-modal-img {
+    max-width: 100%;
+    max-height: 75vh;
+    border-radius: 8px;
+    display: inline-block;
+  }
+  .nt-modal-img[hidden] { display: none; }
+  .nt-modal-img-msg {
+    color: #757575;
+    font-size: 13px;
+    margin: 0;
+    padding: 32px 16px;
+  }
+  .nt-modal-img-msg[hidden] { display: none; }
+
+  .nt-modal-meta {
+    margin-bottom: 16px;
+  }
+  .nt-modal-row {
+    display: flex;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--color-border);
+    gap: 12px;
+    font-size: 14px;
+  }
+  .nt-modal-row:last-child { border-bottom: none; }
+  .nt-modal-row > span:first-child {
+    flex: 0 0 90px;
+    color: #666;
+    font-size: 13px;
+  }
+  .nt-modal-row > span:last-child {
+    flex: 1;
+    color: var(--color-text);
+    font-weight: 500;
+    word-break: break-word;
+  }
+
+  /* ---- モーダル：タイトル行 編集UI（T-33b） ---- */
+  .nt-modal-title-cell {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-width: 0;
+  }
+  .nt-modal-title-view {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-width: 0;
+  }
+  .nt-modal-title-view[hidden] { display: none; }
+  .nt-modal-title-text {
+    flex: 1;
+    min-width: 0;
+    word-break: break-word;
+  }
+  .nt-modal-title-text.is-empty {
+    color: var(--color-text-muted);
+  }
+  .nt-modal-title-edit-btn {
+    flex: 0 0 auto;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-text-muted);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: background .15s, color .15s, border-color .15s;
+  }
+  .nt-modal-title-edit-btn:hover {
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+    border-color: var(--color-primary);
+  }
+  .nt-modal-title-edit-btn:disabled { opacity: .5; cursor: not-allowed; }
+  .nt-modal-title-edit-btn i { width: 16px; height: 16px; }
+
+  .nt-modal-title-edit {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    min-width: 0;
+  }
+  .nt-modal-title-edit[hidden] { display: none; }
+  .nt-modal-title-input {
+    flex: 1;
+    min-width: 0;
+    min-height: 36px;
+    padding: 4px 10px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-family: var(--font-body);
+    font-size: 14px;
+    background: #fff;
+  }
+  .nt-modal-title-input:focus {
+    outline: none;
+    border-color: var(--color-primary);
+  }
+  .nt-modal-title-icon-btn {
+    flex: 0 0 auto;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: background .15s, color .15s, border-color .15s;
+  }
+  .nt-modal-title-icon-btn i { width: 16px; height: 16px; }
+  .nt-modal-title-icon-btn:disabled { opacity: .5; cursor: not-allowed; }
+  .nt-modal-title-save {
+    color: var(--color-primary);
+    border-color: var(--color-primary);
+  }
+  .nt-modal-title-save:not(:disabled):hover {
+    background: var(--color-primary);
+    color: #fff;
+  }
+  .nt-modal-title-cancel:not(:disabled):hover {
+    background: #FAFAFA;
+  }
+
+  .nt-modal-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .nt-modal-actions .btn {
+    flex: 1 1 auto;
+    min-width: 120px;
+    text-decoration: none;
+  }
+
+  /* 削除ボタン（誤タップ防止のため白背景＋赤outlineで視覚差別化） */
+  .nt-btn-delete {
+    background: #fff;
+    color: #E53935;
+    border: 1px solid #E53935;
+    min-height: 44px;
+  }
+  .nt-btn-delete:not(:disabled):hover { background: rgba(229,57,53,.06); }
+  .nt-btn-delete:disabled { opacity: .5; cursor: not-allowed; }
+  .nt-btn-delete i { width: 16px; height: 16px; }
+
+  /* お気に入りボタン（モーダル内）
+     通常 (OFF): btn-ghost ベース（白背景・濃いグレー線・bookmark アウトライン）
+     ON      : 薄ピンク背景＋ピンク枠＋ブックマーク内側ピンク塗り
+     ※ アイコンは bookmark で固定し、塗り（fill）で状態を表現する */
+  .nt-btn-pin {
+    min-height: 44px;
+    color: var(--color-text);
+    border: 1px solid #C9CCD6;          /* 濃いグレー線 */
+  }
+  .nt-btn-pin i, .nt-btn-pin svg { width: 16px; height: 16px; }
+  .nt-btn-pin:disabled { opacity: .5; cursor: not-allowed; }
+  /* OFF時はブックマークをアウトラインのまま（塗りなし） */
+  .nt-btn-pin:not(.is-pinned) svg {
+    fill: none;
+    stroke: currentColor;
+  }
+  /* ON時：薄ピンク背景＋ピンク枠＋ブックマークをピンク塗り */
+  .nt-btn-pin.is-pinned {
+    background: var(--color-accent-soft);
+    color: var(--color-accent);
+    border: 1px solid var(--color-accent);
+  }
+  .nt-btn-pin.is-pinned svg {
+    fill: var(--color-accent);
+    stroke: var(--color-accent);
+  }
+  .nt-btn-pin.is-pinned:not(:disabled):hover {
+    background: rgba(255,77,143,.20);   /* 少し濃いピンク */
+    opacity: 1;
+  }
+
+  /* ---- 削除確認モーダル（拡大モーダルより上に重ねる：z-index 400） ---- */
+  .nt-delete-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, .5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    z-index: 400;
+  }
+  .nt-delete-overlay[hidden] { display: none; }
+
+  .nt-delete-modal {
+    background: #fff;
+    border-radius: 16px;
+    padding: 24px;
+    width: 100%;
+    max-width: 360px;
+    box-shadow: 0 12px 32px rgba(0,0,0,.3);
+  }
+  .nt-delete-title {
+    font-family: var(--font-heading);
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--color-text);
+    margin: 0 0 12px;
+    line-height: 1.4;
+  }
+  .nt-delete-body {
+    font-size: 13px;
+    color: #757575;
+    line-height: 1.7;
+    margin: 0 0 20px;
+  }
+  .nt-delete-actions {
+    display: flex;
+    gap: 12px;
+  }
+  .nt-delete-actions .btn {
+    flex: 1;
+    min-height: 44px;
+  }
+  .nt-delete-confirm-btn {
+    background: #E53935;
+    color: #fff;
+    border: none;
+  }
+  .nt-delete-confirm-btn:not(:disabled):hover { background: #D32F2F; }
+  .nt-delete-confirm-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+  /* ---- レスポンシブ：タブレット（768px+） ---- */
+  @media (min-width: 768px) {
+    .nt-grid {
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+    }
+    .nt-meta { padding: 10px 12px; font-size: 13px; }
+  }
+
+  /* ---- レスポンシブ：PC（1024px+） ---- */
+  @media (min-width: 1024px) {
+    .nt-grid {
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+    }
+  }
+</style>
+
+<div class="nt-root">
+  <h1 class="nt-title">おたより一覧</h1>
+
+  <!-- 画像キャッシュ過多警告バナー（20件超で表示・×で閉じる） -->
+  <div class="nt-cache-banner" id="nt-cache-banner" hidden role="status">
+    <span class="nt-cache-banner-msg">画像キャッシュが多くなっています。不要なおたよりを整理しましょう</span>
+    <button type="button" class="nt-cache-banner-close" id="nt-cache-banner-close" aria-label="閉じる">
+      <i data-lucide="x"></i>
+    </button>
+  </div>
+
+  <!-- ページ全体ローディング（一覧再ロード中はタブ・グリッドの代わりに表示） -->
+  <div class="nt-page-loading" id="nt-page-loading" hidden>
+    <i data-lucide="loader-2" class="nt-spin"></i>
+    <p>読み込み中...</p>
+  </div>
+
+  <!-- 一覧コンテンツ全体（ローディング中は hidden 化して前画面の残像を抑止） -->
+  <div id="nt-list-content">
+    <!-- 子ども別タブ（先頭は「すべて」固定） -->
+    <div class="nt-tabs" id="nt-tabs" role="tablist"></div>
+
+    <!-- 月フィルタープルダウン（T-33c：select 化・先頭「すべての月」） -->
+    <div class="nt-month-filter" id="nt-month-filter" hidden>
+      <select class="nt-month-select" id="nt-month-select" aria-label="月で絞り込み"></select>
+    </div>
+
+    <!-- 月別グループ一覧 -->
+    <div id="nt-groups"></div>
+
+    <!-- 空状態：子ども0人 -->
+    <div class="nt-empty" id="nt-empty-no-children" hidden>
+      <p class="nt-empty-msg">まず子どもを登録してください</p>
+      <button type="button" class="btn btn-primary" id="nt-go-children">
+        <i data-lucide="users"></i>子どもを登録する
+      </button>
+    </div>
+
+    <!-- 空状態：おたより0件 -->
+    <div class="nt-empty" id="nt-empty-no-notices" hidden>
+      <p class="nt-empty-msg">まだおたよりがありません</p>
+      <button type="button" class="btn btn-primary" id="nt-go-upload">
+        <i data-lucide="camera"></i>登録する
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 拡大モーダル（T-13） ===== -->
+<div class="nt-modal" id="nt-modal" role="dialog" aria-modal="true" aria-labelledby="nt-modal-child">
+  <div class="nt-modal-overlay" data-nt-close></div>
+  <div class="nt-modal-card">
+    <!-- 現在位置インジケーター（例：3 / 10）スワイプ・キーボード移動で更新 -->
+    <div class="nt-modal-indicator" id="nt-modal-indicator" hidden aria-live="polite"></div>
+    <button type="button" class="nt-modal-close" data-nt-close aria-label="閉じる">
+      <i data-lucide="x"></i>
+    </button>
+
+    <div class="nt-modal-img-wrap">
+      <img class="nt-modal-img" id="nt-modal-img" alt="おたより" hidden>
+      <p class="nt-modal-img-loading" id="nt-modal-img-loading" hidden>
+        <i data-lucide="loader-2" class="nt-spin"></i>読み込み中...
+      </p>
+      <p class="nt-modal-img-msg" id="nt-modal-img-msg" hidden>画像を読み込めませんでした</p>
+      <!-- PDF用 canvas プレビュー（fileType==='pdf' の時に表示・PDF.jsで描画） -->
+      <canvas id="nt-modal-pdf-canvas" class="nt-modal-pdf-canvas" hidden></canvas>
+      <div id="nt-modal-pdf-loading" class="nt-modal-pdf-loading" hidden>
+        <i data-lucide="loader-2" class="nt-spin"></i>読み込み中...
+      </div>
+    </div>
+
+    <div class="nt-modal-meta">
+      <div class="nt-modal-row"><span>お子さま</span><span id="nt-modal-child"></span></div>
+      <div class="nt-modal-row nt-modal-title-row">
+        <span>タイトル</span>
+        <span class="nt-modal-title-cell">
+          <!-- 表示モード（タイトルあり：テキスト／なし：「（タイトルなし）」muted） -->
+          <span class="nt-modal-title-view" id="nt-modal-title-view">
+            <span class="nt-modal-title-text" id="nt-modal-title"></span>
+            <button type="button" class="nt-modal-title-edit-btn" id="nt-modal-title-edit-btn" aria-label="タイトルを編集">
+              <i data-lucide="pencil"></i>
+            </button>
+          </span>
+          <!-- 編集モード -->
+          <span class="nt-modal-title-edit" id="nt-modal-title-edit" hidden>
+            <input type="text" id="nt-modal-title-input" class="nt-modal-title-input"
+                   maxlength="80" placeholder="タイトル（任意）" autocomplete="off">
+            <button type="button" class="nt-modal-title-icon-btn nt-modal-title-save"
+                    id="nt-modal-title-save" aria-label="保存">
+              <i data-lucide="check"></i>
+            </button>
+            <button type="button" class="nt-modal-title-icon-btn nt-modal-title-cancel"
+                    id="nt-modal-title-cancel" aria-label="キャンセル">
+              <i data-lucide="x"></i>
+            </button>
+          </span>
+        </span>
+      </div>
+      <div class="nt-modal-row"><span>対象年月</span><span id="nt-modal-ym"></span></div>
+      <div class="nt-modal-row"><span>登録日時</span><span id="nt-modal-at"></span></div>
+    </div>
+
+    <div class="nt-modal-actions">
+      <button type="button" class="btn btn-ghost nt-btn-pin" id="nt-modal-pin">
+        <i data-lucide="bookmark" id="nt-modal-pin-icon"></i><span id="nt-modal-pin-label">お気に入りに追加</span>
+      </button>
+      <a class="btn btn-secondary" id="nt-modal-drive" href="#" target="_blank" rel="noopener">
+        <i data-lucide="external-link"></i>Driveで開く
+      </a>
+      <button type="button" class="btn btn-ghost" data-nt-close>閉じる</button>
+      <button type="button" class="btn nt-btn-delete" id="nt-modal-delete">
+        <i data-lucide="trash-2"></i>削除する
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 削除確認モーダル（T-27改修 / カスタムモーダル化） ===== -->
+<div class="nt-delete-overlay" id="nt-delete-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="nt-delete-title">
+  <div class="nt-delete-modal">
+    <h2 class="nt-delete-title" id="nt-delete-title">おたよりを削除しますか？</h2>
+    <p class="nt-delete-body">
+      削除後30日以内であればGoogleドライブのゴミ箱から復元できます。<br>
+      （drive.google.com → ゴミ箱 → 右クリック → 復元）
+    </p>
+    <div class="nt-delete-actions">
+      <button type="button" class="btn btn-ghost" id="nt-delete-cancel">キャンセル</button>
+      <button type="button" class="btn nt-delete-confirm-btn" id="nt-delete-confirm">削除する</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  // =============================================
+  // 【おたより一覧画面】タブ切替・月別グループ表示・拡大モーダル
+  // 同梱SPAのため即時実行関数で名前空間を閉じる
+  // =============================================
+
+  // ---- 状態 ----
+  var NoticesPageState = {
+    children:          [],    // getChildren結果
+    notices:           [],    // 現在タブのgetNotices結果（子どもタブで絞り込み済み）
+    selectedChildId:   null,  // null=「すべて」、'child_001'等=該当子ども
+    selectedYearMonth: null,  // null=「すべて」、'2026-06'等=該当月（T-26）
+    loading:           false,
+    modalNotice:       null,
+    // {[fileId]: 'data:...base64,...'} 取得済み画像のグローバル共有キャッシュ
+    // home.html の最近のおたより表示と同じ参照を持つことで二重取得を防ぐ
+    imageCache:      (window.NoticeImageCache = window.NoticeImageCache || {}),
+    fetchQueue:      [],    // 未取得サムネのfileId配列（順次取得用）
+    fetching:        false, // 取得中フラグ（多重実行防止）
+    bannerDismissed: false, // キャッシュ警告バナーが×で閉じられたか
+    deleting:        false, // 削除実行中フラグ（連打防止）
+    pinning:         false, // ピン留め更新中フラグ（連打防止）
+    editingTitle:    false, // タイトル編集モード中フラグ（T-33b）
+    modalVisibleList: [],   // モーダル開時にスナップショットした可視リスト（ピン留め→月別順）（T-24）
+    modalIndex:      -1,    // スナップショット内の現在位置（-1=モーダル閉）（T-24）
+    childAvatarMap:  {},    // {childId: avatarFileId} 子ども名バッジ内の小サムネ用
+    childColorMap:   {}     // {childId: '#RRGGBB'} 子ども別バッジカラー（T-32）
+  };
+
+  // ---- 定数 ----
+  var CACHE_BANNER_THRESHOLD = 20;  // この件数を「超えたら」バナー表示
+
+  // ---- DOM参照（init で確定） ----
+  var elTabs, elMonthFilter, elMonthSelect, elGroups, elEmptyNoChildren, elEmptyNoNotices;
+  var elGoChildren, elGoUpload;
+  var elCacheBanner, elCacheBannerClose;
+  var elPageLoading, elListContent;
+  var elModal, elModalImg, elModalImgLoading, elModalImgMsg;
+  var elModalPdfCanvas, elModalPdfLoading;
+  var elModalChild, elModalYm, elModalAt, elModalDrive, elModalDelete;
+  var elModalTitleRow, elModalTitle;
+  var elModalTitleView, elModalTitleEdit, elModalTitleEditBtn;
+  var elModalTitleInput, elModalTitleSave, elModalTitleCancel;
+  var elModalPin, elModalPinIcon, elModalPinLabel;
+  var elModalIndicator, elModalImgWrap;
+  var elDeleteOverlay, elDeleteConfirm, elDeleteCancel;
+
+  // =============================================
+  // 【補助】子どもID→バッジカラー（T-32）
+  // childColorMap から取得。未設定時は青デフォルト
+  // =============================================
+  function getChildColor(childId) {
+    try {
+      if (!childId) return '#4D96FF';
+      return NoticesPageState.childColorMap[childId] || '#4D96FF';
+    } catch (e) {
+      return '#4D96FF';
+    }
+  }
+
+  // =============================================
+  // 【補助】属性セレクタ内で使うためfileIdをエスケープ
+  // ID内に予期せぬ特殊文字があった場合の保険
+  // =============================================
+  function cssAttrEscape(s) {
+    try {
+      return String(s).replace(/(["\\])/g, '\\$1');
+    } catch (e) {
+      return '';
+    }
+  }
+
+  // =============================================
+  // 【絞り込み】子どもタブ適用済み notices に対し月フィルターを掛けた配列を返す
+  // 月フィルター null=すべて、'YYYY-MM'=該当月のみ
+  // T-25のピン留め分離・T-24のスワイプ対象配列はこの戻り値を起点に組み立てる
+  // =============================================
+  function getFilteredNotices() {
+    try {
+      var src = NoticesPageState.notices || [];
+      var ym = NoticesPageState.selectedYearMonth;
+      if (!ym) return src.slice();  // null/空 は全件（参照分離のため slice）
+
+      var out = [];
+      for (var i = 0; i < src.length; i++) {
+        if (src[i].yearMonth === ym) out.push(src[i]);
+      }
+      return out;
+    } catch (e) {
+      console.error('getFilteredNotices エラー: ' + e);
+      return [];
+    }
+  }
+
+  // =============================================
+  // 【グループ化】おたよりを年月でグループ化
+  // 入力は CREATED_AT 降順だが、CREATED_AT 順 ≠ YEAR_MONTH 順となるケースがあるため
+  // 明示的に yearMonth で降順ソートする（T-33c：すべて/子ども個別タブ両方で月順を統一）
+  // =============================================
+  function groupByYearMonth(notices) {
+    try {
+      var groups = [];
+      var byKey = {};
+      for (var i = 0; i < notices.length; i++) {
+        var n = notices[i];
+        var key = n.yearMonth || '不明';
+        if (!byKey[key]) {
+          byKey[key] = { yearMonth: key, items: [] };
+          groups.push(byKey[key]);
+        }
+        byKey[key].items.push(n);
+      }
+      // T-33c：月グループを新しい順（降順）にソート
+      // 'YYYY-MM' は辞書順=時系列順。yearMonth が '不明' のグループは末尾に置く
+      groups.sort(function(a, b) {
+        if (a.yearMonth === '不明') return 1;
+        if (b.yearMonth === '不明') return -1;
+        if (a.yearMonth < b.yearMonth) return 1;
+        if (a.yearMonth > b.yearMonth) return -1;
+        return 0;
+      });
+      return groups;
+    } catch (e) {
+      console.error('groupByYearMonth エラー: ' + e);
+      return [];
+    }
+  }
+
+  // =============================================
+  // 【描画】タブ群（「すべて」＋子ども）
+  // =============================================
+  function renderTabs() {
+    try {
+      elTabs.innerHTML = '';
+
+      // 先頭：「すべて」タブ
+      var allTab = document.createElement('button');
+      allTab.type = 'button';
+      allTab.className = 'nt-tab';
+      allTab.setAttribute('role', 'tab');
+      allTab.setAttribute('data-child-id', '');
+      allTab.textContent = 'すべて';
+      if (NoticesPageState.selectedChildId === null) {
+        allTab.classList.add('is-selected');
+      }
+      allTab.addEventListener('click', onTabClick);
+      elTabs.appendChild(allTab);
+
+      // 子どもタブ
+      var list = NoticesPageState.children;
+      for (var i = 0; i < list.length; i++) {
+        var c = list[i];
+        var tab = document.createElement('button');
+        tab.type = 'button';
+        tab.className = 'nt-tab';
+        tab.setAttribute('role', 'tab');
+        tab.setAttribute('data-child-id', c.id);
+        tab.textContent = c.name;
+        // 子ども別バッジカラーをCSS変数で渡す（T-32：選択時の背景色に反映）
+        tab.style.setProperty('--child-color', c.color || '#4D96FF');
+        if (NoticesPageState.selectedChildId === c.id) {
+          tab.classList.add('is-selected');
+        }
+        tab.addEventListener('click', onTabClick);
+        elTabs.appendChild(tab);
+      }
+    } catch (e) {
+      console.error('renderTabs エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【描画】月フィルタープルダウン（T-33c：select 化）
+  // 子どもタブ適用済み notices から yearMonth ユニーク値を降順で並べ option を生成
+  // 月が1種類以下なら（実質意味がない）コンテナごと隠す
+  // =============================================
+  function renderMonthSelect() {
+    try {
+      if (!elMonthFilter || !elMonthSelect) return;
+
+      // ユニーク月を抽出
+      var seen = {};
+      var months = [];
+      var src = NoticesPageState.notices || [];
+      for (var i = 0; i < src.length; i++) {
+        var ym = src[i].yearMonth;
+        if (!ym) continue;
+        if (seen[ym]) continue;
+        seen[ym] = true;
+        months.push(ym);
+      }
+      // T-33c：月選択肢を新しい順（降順）でソート
+      // 'YYYY-MM' は辞書順=時系列順
+      months.sort(function(a, b) {
+        if (a < b) return 1;
+        if (a > b) return -1;
+        return 0;
+      });
+
+      // 月が1種類以下ならフィルター不要・コンテナごと隠す
+      if (months.length <= 1) {
+        elMonthFilter.hidden = true;
+        elMonthSelect.innerHTML = '';
+        return;
+      }
+      elMonthFilter.hidden = false;
+
+      // option を組み直す
+      elMonthSelect.innerHTML = '';
+
+      // 先頭：「すべての月」（value='' → state.selectedYearMonth = null と対応）
+      var optAll = document.createElement('option');
+      optAll.value = '';
+      optAll.textContent = 'すべての月';
+      elMonthSelect.appendChild(optAll);
+
+      // 各月（'YYYY年M月' で表示）
+      for (var j = 0; j < months.length; j++) {
+        var ym2 = months[j];
+        var opt = document.createElement('option');
+        opt.value = ym2;
+        opt.textContent = window.formatYearMonth ? window.formatYearMonth(ym2) : ym2;
+        elMonthSelect.appendChild(opt);
+      }
+
+      // 現在の選択値を反映（null → ''＝「すべての月」）
+      elMonthSelect.value = NoticesPageState.selectedYearMonth || '';
+    } catch (e) {
+      console.error('renderMonthSelect エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【描画】月別グループ＋サムネイルグリッド
+  // =============================================
+  function renderList() {
+    try {
+      elGroups.innerHTML = '';
+
+      // 子ども0人時：専用空状態を表示・他は隠す
+      if (NoticesPageState.children.length === 0) {
+        elEmptyNoChildren.hidden = false;
+        elEmptyNoNotices.hidden  = true;
+        if (window.lucide) lucide.createIcons();
+        return;
+      }
+      elEmptyNoChildren.hidden = true;
+
+      // おたより0件時：登録誘導を表示
+      if (NoticesPageState.notices.length === 0) {
+        elEmptyNoNotices.hidden = false;
+        if (window.lucide) lucide.createIcons();
+        return;
+      }
+      elEmptyNoNotices.hidden = true;
+
+      // ピン留めと通常を分離（T-25：ピン留めを一覧上部の独立セクションへ）
+      // T-26：月フィルター適用後の配列を起点にする（子どもタブ→月フィルターのAND絞り込み）
+      var visible = getFilteredNotices();
+      var pinnedList = [];
+      var normalList = [];
+      for (var vi = 0; vi < visible.length; vi++) {
+        if (visible[vi].pinned === 'true') {
+          pinnedList.push(visible[vi]);
+        } else {
+          normalList.push(visible[vi]);
+        }
+      }
+
+      // ピン留めセクション（0件なら見出しごと描画しない）
+      if (pinnedList.length > 0) {
+        var pinnedSection = document.createElement('section');
+        pinnedSection.className = 'nt-group';
+
+        var pinnedHeading = document.createElement('h2');
+        pinnedHeading.className = 'nt-group-heading nt-group-heading-pin';
+        pinnedHeading.innerHTML = '<i data-lucide="bookmark-check"></i><span>お気に入り</span>';
+        pinnedSection.appendChild(pinnedHeading);
+
+        var pinnedGrid = document.createElement('div');
+        pinnedGrid.className = 'nt-grid';
+        for (var pi = 0; pi < pinnedList.length; pi++) {
+          pinnedGrid.appendChild(buildNoticeItem(pinnedList[pi]));
+        }
+        pinnedSection.appendChild(pinnedGrid);
+
+        elGroups.appendChild(pinnedSection);
+      }
+
+      // 月別グループ描画（ピン留め以外を月でグループ化）
+      var groups = groupByYearMonth(normalList);
+      for (var g = 0; g < groups.length; g++) {
+        var grp = groups[g];
+
+        // グループラッパー
+        var groupEl = document.createElement('section');
+        groupEl.className = 'nt-group';
+
+        // 見出し（YYYY年M月）
+        var heading = document.createElement('h2');
+        heading.className = 'nt-group-heading';
+        heading.textContent = window.formatYearMonth
+          ? window.formatYearMonth(grp.yearMonth)
+          : grp.yearMonth;
+        groupEl.appendChild(heading);
+
+        // グリッド
+        var grid = document.createElement('div');
+        grid.className = 'nt-grid';
+        for (var i = 0; i < grp.items.length; i++) {
+          grid.appendChild(buildNoticeItem(grp.items[i]));
+        }
+        groupEl.appendChild(grid);
+
+        elGroups.appendChild(groupEl);
+      }
+
+      // 動的アイコン再描画（フォールバックアイコン・ピン留めアイコン用）
+      if (window.lucide) lucide.createIcons();
+    } catch (e) {
+      console.error('renderList エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【PDFサムネ描画】PDF base64 を tile 内に canvas 描画
+  // 既に canvas があれば再描画しない（重複防止）
+  // 失敗時は file-text アイコン表示のまま（is-rendered は付けない）
+  // =============================================
+  function renderPdfThumbIntoTile(tile, dataUrl) {
+    try {
+      if (!tile) return;
+      if (tile.querySelector('canvas.nt-thumb-canvas')) return;  // 描画済みスキップ
+
+      var canvas = document.createElement('canvas');
+      canvas.className = 'nt-thumb-canvas';
+      canvas.hidden = true;  // 描画完了まで非表示
+      tile.appendChild(canvas);
+
+      if (typeof window.renderPdfToCanvas !== 'function') {
+        // ライブラリ未ロード → canvas 削除して file-text 表示維持
+        if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
+        return;
+      }
+      window.renderPdfToCanvas(dataUrl, canvas, function(err) {
+        if (err) {
+          // 失敗 → canvas 削除（file-text アイコン表示が残る）
+          if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
+          return;
+        }
+        // 成功 → canvas 表示・file-text/ラベル隠し（クラス切替・インラインスタイル不使用）
+        canvas.hidden = false;
+        tile.classList.add('is-rendered');
+      });
+    } catch (e) {
+      console.error('renderPdfThumbIntoTile エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【描画】1件分のサムネイルカード要素を組み立てる
+  // 画像はキャッシュ済みなら即座にsrc、未取得なら読み込み中表示＋取得キュー投入
+  // =============================================
+  function buildNoticeItem(notice) {
+    try {
+      var item = document.createElement('div');
+      item.className = 'nt-item';
+      item.setAttribute('data-notice-id', notice.id);
+      // 子ども別バッジカラーをCSS変数で渡す（T-32：.nt-meta-child の背景に反映）
+      item.style.setProperty('--child-color', getChildColor(notice.childId));
+
+      // サムネ部
+      var wrap = document.createElement('div');
+      wrap.className = 'nt-thumb-wrap';
+
+      if (notice.fileType === 'pdf') {
+        // PDFサムネ：まず file-text アイコン＋ラベルで即時表示（描画完了でcanvasに差替え）
+        var pdfTile = document.createElement('div');
+        pdfTile.className = 'nt-thumb-pdf';
+        pdfTile.setAttribute('data-file-id', notice.fileId || '');
+        pdfTile.innerHTML = '<i data-lucide="file-text"></i><span class="nt-thumb-pdf-label">PDF</span>';
+        wrap.appendChild(pdfTile);
+
+        // キャッシュ済み → 即時 canvas 描画／未取得 → enqueue
+        if (notice.fileId && NoticesPageState.imageCache[notice.fileId]) {
+          renderPdfThumbIntoTile(pdfTile, NoticesPageState.imageCache[notice.fileId]);
+        } else if (notice.fileId) {
+          enqueueImageFetch(notice.fileId);
+        }
+      } else {
+        // 画像要素（取得完了後に src がセットされる）
+        var img = document.createElement('img');
+        img.className = 'nt-thumb';
+        img.alt = notice.childName + 'のおたより';
+        img.setAttribute('data-file-id', notice.fileId || '');  // 取得後DOM再検索の目印
+
+        // 読み込み中プレースホルダ
+        var loading = document.createElement('div');
+        loading.className = 'nt-thumb-loading';
+        loading.innerHTML = '<i data-lucide="loader-2" class="nt-spin"></i>読み込み中...';
+
+        // 取得失敗時フォールバック
+        var fallback = document.createElement('div');
+        fallback.className = 'nt-thumb-fallback';
+        fallback.hidden = true;
+        fallback.innerHTML = '<i data-lucide="image-off"></i>画像を読み込めませんでした';
+
+        // 表示失敗時（base64セット後にデコード失敗等）
+        img.onerror = function() {
+          img.hidden = true;
+          loading.hidden = true;
+          fallback.hidden = false;
+          if (window.lucide) lucide.createIcons();
+        };
+
+        // キャッシュ済みなら即時表示・未取得なら取得キューへ
+        if (notice.fileId && NoticesPageState.imageCache[notice.fileId]) {
+          img.src = NoticesPageState.imageCache[notice.fileId];
+          loading.hidden = true;
+        } else {
+          img.hidden = true;  // 取得完了まで非表示
+          if (notice.fileId) {
+            enqueueImageFetch(notice.fileId);
+          } else {
+            // fileIdが空 → 取得不能なのでフォールバック直行
+            loading.hidden = true;
+            fallback.hidden = false;
+          }
+        }
+
+        wrap.appendChild(img);
+        wrap.appendChild(loading);
+        wrap.appendChild(fallback);
+      }
+
+      // ブックマークバッジ（pinned==='true' の時のみサムネ右上に表示）
+      if (notice.pinned === 'true') {
+        item.classList.add('is-pinned');
+        var pinBadge = document.createElement('div');
+        pinBadge.className = 'nt-thumb-pin-badge';
+        pinBadge.setAttribute('aria-label', 'お気に入り登録中');
+        pinBadge.innerHTML = '<i data-lucide="bookmark"></i>';
+        wrap.appendChild(pinBadge);
+      }
+
+      item.appendChild(wrap);
+
+      // メタ情報（子ども名＋登録日時）
+      var meta = document.createElement('div');
+      meta.className = 'nt-meta';
+
+      var metaChild = document.createElement('div');
+      metaChild.className = 'nt-meta-child';
+
+      // バッジ内の小アバター（任意・該当子どもに avatarFileId があれば追加）
+      var avatarFid = '';
+      if (NoticesPageState.childAvatarMap && notice.childId) {
+        avatarFid = NoticesPageState.childAvatarMap[notice.childId] || '';
+      }
+      if (avatarFid && NoticesPageState.imageCache[avatarFid]) {
+        // キャッシュ済 → 即img
+        var avImg = document.createElement('img');
+        avImg.className = 'nt-meta-child-avatar';
+        avImg.alt = '';
+        avImg.src = NoticesPageState.imageCache[avatarFid];
+        metaChild.appendChild(avImg);
+      } else if (avatarFid) {
+        // 未キャッシュ → プレースホルダ＋取得キュー
+        var avPh = document.createElement('span');
+        avPh.className = 'nt-meta-child-avatar-ph';
+        avPh.setAttribute('data-avatar-file-id', avatarFid);
+        metaChild.appendChild(avPh);
+        enqueueImageFetch(avatarFid);
+      } else {
+        // アバター無し → padding 調整クラス
+        metaChild.classList.add('is-no-avatar');
+      }
+
+      var metaChildName = document.createElement('span');
+      metaChildName.className = 'nt-meta-child-name';
+      metaChildName.textContent = notice.childName || '';
+      metaChild.appendChild(metaChildName);
+
+      meta.appendChild(metaChild);
+
+      var metaAt = document.createElement('div');
+      metaAt.className = 'nt-meta-at';
+      metaAt.textContent = window.formatDateTime
+        ? window.formatDateTime(notice.createdAt)
+        : notice.createdAt;
+      meta.appendChild(metaAt);
+
+      // タイトル（任意・T-33）：あれば表示・なければ要素自体を作らない
+      if (notice.title && String(notice.title).trim() !== '') {
+        var metaTitle = document.createElement('div');
+        metaTitle.className = 'nt-meta-title';
+        metaTitle.textContent = String(notice.title).trim();
+        meta.appendChild(metaTitle);
+      }
+
+      item.appendChild(meta);
+
+      // タップで拡大モーダル
+      item.addEventListener('click', function() {
+        openNoticeModal(notice);
+      });
+
+      return item;
+    } catch (e) {
+      console.error('buildNoticeItem エラー: ' + e);
+      return document.createElement('div');
+    }
+  }
+
+  // =============================================
+  // 【取得キュー】fileIdをキューに追加（重複・キャッシュ済みは無視）
+  // =============================================
+  function enqueueImageFetch(fileId) {
+    try {
+      if (!fileId) return;
+      if (NoticesPageState.imageCache[fileId]) return;
+      if (NoticesPageState.fetchQueue.indexOf(fileId) !== -1) return;
+      NoticesPageState.fetchQueue.push(fileId);
+      processFetchQueue();
+    } catch (e) {
+      console.error('enqueueImageFetch エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【取得キュー】1件ずつシリアル取得（同時1件のみGAS呼び出し）
+  // =============================================
+  function processFetchQueue() {
+    try {
+      if (NoticesPageState.fetching) return;
+      if (NoticesPageState.fetchQueue.length === 0) return;
+
+      var fileId = NoticesPageState.fetchQueue.shift();
+
+      // 既にキャッシュ済みならスキップして次へ
+      if (NoticesPageState.imageCache[fileId]) {
+        processFetchQueue();
+        return;
+      }
+
+      NoticesPageState.fetching = true;
+      callGAS('getNoticeImage', [fileId], function(dataUrl) {
+        try {
+          NoticesPageState.imageCache[fileId] = dataUrl;
+          applyImageToDom(fileId, dataUrl);
+          applyChildAvatarToDom(fileId, dataUrl);
+          maybeShowCacheBanner();
+        } catch (e2) {
+          console.error('processFetchQueue success内エラー: ' + e2);
+        } finally {
+          NoticesPageState.fetching = false;
+          processFetchQueue();
+        }
+      }, function(err) {
+        try {
+          markImageFailedInDom(fileId);
+        } catch (e3) {
+          console.error('processFetchQueue failure内エラー: ' + e3);
+        } finally {
+          NoticesPageState.fetching = false;
+          processFetchQueue();
+        }
+      });
+    } catch (e) {
+      console.error('processFetchQueue エラー: ' + e);
+      NoticesPageState.fetching = false;
+    }
+  }
+
+  // =============================================
+  // 【DOM反映】取得済み画像を該当imgにセット・モーダルにも反映
+  // =============================================
+  function applyImageToDom(fileId, dataUrl) {
+    try {
+      // 該当 fileId の fileType を notices から逆引き
+      var fileType = '';
+      var list = NoticesPageState.notices || [];
+      for (var li = 0; li < list.length; li++) {
+        if (list[li].fileId === fileId) {
+          fileType = list[li].fileType;
+          break;
+        }
+      }
+
+      if (fileType === 'pdf') {
+        // PDF：file-text タイルを探して canvas に1ページ目を描画
+        var pdfSel = '.nt-thumb-pdf[data-file-id="' + cssAttrEscape(fileId) + '"]';
+        var tiles = document.querySelectorAll(pdfSel);
+        for (var ti = 0; ti < tiles.length; ti++) {
+          renderPdfThumbIntoTile(tiles[ti], dataUrl);
+        }
+      } else {
+        // 画像：既存ロジック（imgのsrcセット＋loading隠す）
+        var sel = 'img.nt-thumb[data-file-id="' + cssAttrEscape(fileId) + '"]';
+        var imgs = document.querySelectorAll(sel);
+        for (var i = 0; i < imgs.length; i++) {
+          imgs[i].src = dataUrl;
+          imgs[i].hidden = false;
+          var wrap = imgs[i].parentNode;
+          if (wrap) {
+            var loading = wrap.querySelector('.nt-thumb-loading');
+            if (loading) loading.hidden = true;
+          }
+        }
+      }
+
+      // モーダルが当該fileIdを待っていれば反映（PDFはcanvasへ、画像はimgへ）
+      if (NoticesPageState.modalNotice && NoticesPageState.modalNotice.fileId === fileId) {
+        if (NoticesPageState.modalNotice.fileType === 'pdf') {
+          renderModalPdf(dataUrl);
+        } else {
+          setModalImage(dataUrl);
+        }
+      }
+    } catch (e) {
+      console.error('applyImageToDom エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【DOM反映】子ども名バッジ内の小アバター：取得済み画像を反映
+  // data-avatar-file-id 属性を持つ .nt-meta-child-avatar-ph を <img.nt-meta-child-avatar> に置換
+  // =============================================
+  function applyChildAvatarToDom(fileId, dataUrl) {
+    try {
+      var sel = '.nt-meta-child-avatar-ph[data-avatar-file-id="' + cssAttrEscape(fileId) + '"]';
+      var phs = document.querySelectorAll(sel);
+      for (var i = 0; i < phs.length; i++) {
+        var ph = phs[i];
+        var img = document.createElement('img');
+        img.className = 'nt-meta-child-avatar';
+        img.alt = '';
+        img.src = dataUrl;
+        if (ph.parentNode) ph.parentNode.replaceChild(img, ph);
+      }
+    } catch (e) {
+      console.error('applyChildAvatarToDom エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【DOM反映】取得失敗時：該当サムネをフォールバック表示
+  // =============================================
+  function markImageFailedInDom(fileId) {
+    try {
+      var sel = 'img.nt-thumb[data-file-id="' + cssAttrEscape(fileId) + '"]';
+      var imgs = document.querySelectorAll(sel);
+      for (var i = 0; i < imgs.length; i++) {
+        var wrap = imgs[i].parentNode;
+        if (!wrap) continue;
+        var loading = wrap.querySelector('.nt-thumb-loading');
+        var fallback = wrap.querySelector('.nt-thumb-fallback');
+        if (loading) loading.hidden = true;
+        if (fallback) fallback.hidden = false;
+      }
+      if (NoticesPageState.modalNotice && NoticesPageState.modalNotice.fileId === fileId) {
+        setModalImageFailed();
+      }
+      if (window.lucide) lucide.createIcons();
+    } catch (e) {
+      console.error('markImageFailedInDom エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【キャッシュバナー】20件超で警告バナーを表示
+  // 一度×で閉じられたらセッション内は再表示しない
+  // =============================================
+  function maybeShowCacheBanner() {
+    try {
+      if (NoticesPageState.bannerDismissed) return;
+      var count = 0;
+      for (var k in NoticesPageState.imageCache) {
+        if (NoticesPageState.imageCache.hasOwnProperty(k)) count++;
+      }
+      if (count > CACHE_BANNER_THRESHOLD && elCacheBanner) {
+        elCacheBanner.hidden = false;
+        if (window.lucide) lucide.createIcons();
+      }
+    } catch (e) {
+      console.error('maybeShowCacheBanner エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【モーダル画像】ローディング表示
+  // =============================================
+  function setModalLoading() {
+    try {
+      elModalImg.hidden        = true;
+      elModalImgMsg.hidden     = true;
+      if (elModalPdfCanvas)  elModalPdfCanvas.hidden  = true;
+      if (elModalPdfLoading) elModalPdfLoading.hidden = true;
+      elModalImgLoading.hidden = false;
+      if (window.lucide) lucide.createIcons();
+    } catch (e) {
+      console.error('setModalLoading エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【モーダル画像】取得完了時：dataUrlをセットして表示
+  // =============================================
+  function setModalImage(dataUrl) {
+    try {
+      elModalImgLoading.hidden = true;
+      elModalImgMsg.hidden     = true;
+      if (elModalPdfCanvas)  elModalPdfCanvas.hidden  = true;
+      if (elModalPdfLoading) elModalPdfLoading.hidden = true;
+      elModalImg.hidden        = false;
+      elModalImg.onerror = function() { setModalImageFailed(); };
+      elModalImg.src = dataUrl;
+    } catch (e) {
+      console.error('setModalImage エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【モーダル画像】失敗表示
+  // =============================================
+  function setModalImageFailed() {
+    try {
+      elModalImg.hidden        = true;
+      elModalImgLoading.hidden = true;
+      elModalImgMsg.hidden     = false;
+      if (elModalPdfCanvas)  elModalPdfCanvas.hidden  = true;
+      if (elModalPdfLoading) elModalPdfLoading.hidden = true;
+    } catch (e) {
+      console.error('setModalImageFailed エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【モーダルPDF】PDFを canvas に PDF.js で 1ページ目描画
+  // PCのChrome等で iframe + Blob URL がブロックされる問題への対策
+  // =============================================
+  function renderModalPdf(dataUrl) {
+    try {
+      // 画像系の表示は隠す
+      if (elModalImg)        elModalImg.hidden        = true;
+      if (elModalImgLoading) elModalImgLoading.hidden = true;
+      if (elModalImgMsg)     elModalImgMsg.hidden     = true;
+      if (!elModalPdfCanvas) return;
+
+      // canvas とローディングを表示してから描画開始
+      elModalPdfCanvas.hidden = false;
+      if (elModalPdfLoading) elModalPdfLoading.hidden = false;
+
+      // PDF.js（renderPdfToCanvas）未ロード時は失敗表示
+      if (typeof window.renderPdfToCanvas !== 'function') {
+        elModalPdfCanvas.hidden = true;
+        if (elModalPdfLoading) elModalPdfLoading.hidden = true;
+        setModalImageFailed();
+        return;
+      }
+
+      window.renderPdfToCanvas(dataUrl, elModalPdfCanvas, function(err) {
+        try {
+          if (elModalPdfLoading) elModalPdfLoading.hidden = true;
+          if (err) {
+            elModalPdfCanvas.hidden = true;
+            setModalImageFailed();
+          }
+        } catch (e2) {
+          console.error('renderModalPdf callback エラー: ' + e2);
+        }
+      });
+    } catch (e) {
+      console.error('renderModalPdf エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【イベント】子どもタブクリック → 選択切替・再ロード
+  // 月フィルターは「すべて」にリセットする（子どもが変われば月選択肢も変わるため）
+  // =============================================
+  function onTabClick() {
+    try {
+      var id = this.getAttribute('data-child-id') || '';
+      NoticesPageState.selectedChildId = (id === '') ? null : id;
+      NoticesPageState.selectedYearMonth = null;  // 月フィルターをリセット
+      renderTabs();    // 選択ハイライト更新
+      loadNotices();   // 該当子どものおたよりを再取得（月タブは取得後に再構築）
+    } catch (e) {
+      console.error('onTabClick エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【イベント】月フィルタープルダウン変更 → 即時フィルタリング（T-33c）
+  // 取得済み notices を JS で絞り込むだけなので軽量・GAS再取得なし
+  // =============================================
+  function onMonthSelectChange() {
+    try {
+      var ym = elMonthSelect ? String(elMonthSelect.value || '') : '';
+      NoticesPageState.selectedYearMonth = (ym === '') ? null : ym;
+      renderList();   // 一覧再描画（フィルター反映）
+    } catch (e) {
+      console.error('onMonthSelectChange エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【モーダル可視リスト構築】（T-24）
+  // 現在の絞り込み（子どもタブ＋月フィルター）後のリストをピン留め優先順で連結
+  // → スワイプ・キーボード前後移動の対象配列となる
+  // =============================================
+  function buildModalVisibleList() {
+    try {
+      var src = getFilteredNotices();
+      var pinned = [];
+      var unpinned = [];
+      for (var i = 0; i < src.length; i++) {
+        if (src[i].pinned === 'true') pinned.push(src[i]);
+        else unpinned.push(src[i]);
+      }
+      return pinned.concat(unpinned);
+    } catch (e) {
+      console.error('buildModalVisibleList エラー: ' + e);
+      return [];
+    }
+  }
+
+  // =============================================
+  // 【インジケーター更新】（T-24）
+  // 「3 / 10」形式で現在位置を表示。スナップショット無効時は隠す
+  // =============================================
+  function updateModalIndicator() {
+    try {
+      if (!elModalIndicator) return;
+      var total = NoticesPageState.modalVisibleList.length;
+      var idx = NoticesPageState.modalIndex;
+      if (total <= 0 || idx < 0) {
+        elModalIndicator.hidden = true;
+        return;
+      }
+      elModalIndicator.hidden = false;
+      elModalIndicator.textContent = (idx + 1) + ' / ' + total;
+    } catch (e) {
+      console.error('updateModalIndicator エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【モーダルコンテンツ反映】notice の各フィールドをDOMに反映（T-24で抽出）
+  // openNoticeModal と前後ナビゲーション（goToNoticeByIndex）の共通処理
+  // 注：モーダルの開閉自体は呼び出し側が制御する
+  // =============================================
+  function setModalNoticeContent(notice) {
+    try {
+      NoticesPageState.modalNotice = notice;
+
+      // 子ども名・年月・登録日時をセット
+      elModalChild.textContent = notice.childName || '';
+      elModalYm.textContent    = window.formatYearMonth
+        ? window.formatYearMonth(notice.yearMonth)
+        : (notice.yearMonth || '');
+      elModalAt.textContent    = window.formatDateTime
+        ? window.formatDateTime(notice.createdAt)
+        : (notice.createdAt || '');
+
+      // タイトル行（T-33b：常時表示・編集UI対応）
+      // タイトルあり → テキスト表示／なし → 「（タイトルなし）」を muted で表示
+      // モーダルを開いた直後は必ず表示モードへ
+      if (elModalTitle && elModalTitleView && elModalTitleEdit) {
+        var titleStr = (notice.title || '').toString().trim();
+        if (titleStr) {
+          elModalTitle.textContent = titleStr;
+          elModalTitle.classList.remove('is-empty');
+        } else {
+          elModalTitle.textContent = '（タイトルなし）';
+          elModalTitle.classList.add('is-empty');
+        }
+        elModalTitleView.hidden = false;
+        elModalTitleEdit.hidden = true;
+        NoticesPageState.editingTitle = false;
+      }
+
+      // Driveで開くリンク
+      elModalDrive.href = notice.fileUrl || '#';
+
+      // ピン留めボタン表示更新
+      updateModalPinButton(notice);
+
+      // 前の表示の残像防止：PDF canvas を一旦クリア（image→PDF切替・PDF→PDF切替の保険）
+      if (elModalPdfCanvas) {
+        try {
+          var ctx = elModalPdfCanvas.getContext('2d');
+          if (ctx) ctx.clearRect(0, 0, elModalPdfCanvas.width, elModalPdfCanvas.height);
+        } catch (eC) {}
+      }
+      // 前の画像 src もクリア（PDF→image切替で旧画像が一瞬出るのを防ぐ）
+      if (elModalImg) elModalImg.removeAttribute('src');
+
+      if (notice.fileType === 'pdf') {
+        // PDFは GAS base64 取得 → PDF.js で canvas 描画
+        // 画像系を隠し、canvas+ローディングを先に表示する
+        if (elModalImg)        elModalImg.hidden        = true;
+        if (elModalImgLoading) elModalImgLoading.hidden = true;
+        if (elModalImgMsg)     elModalImgMsg.hidden     = true;
+        if (elModalPdfCanvas)  elModalPdfCanvas.hidden  = false;
+        if (elModalPdfLoading) elModalPdfLoading.hidden = false;
+
+        if (notice.fileId && NoticesPageState.imageCache[notice.fileId]) {
+          // キャッシュ済み → 即時 canvas 描画
+          renderModalPdf(NoticesPageState.imageCache[notice.fileId]);
+        } else if (notice.fileId) {
+          // 未取得 → ローディング表示のまま取得キュー投入（applyImageToDomで描画される）
+          enqueueImageFetch(notice.fileId);
+        } else {
+          setModalImageFailed();
+        }
+      } else if (notice.fileId && NoticesPageState.imageCache[notice.fileId]) {
+        // キャッシュ済み画像 → 即時表示
+        setModalImage(NoticesPageState.imageCache[notice.fileId]);
+      } else if (notice.fileId) {
+        // 未取得画像 → ローディング表示＋キュー投入
+        setModalLoading();
+        enqueueImageFetch(notice.fileId);
+      } else {
+        setModalImageFailed();
+      }
+
+      // 動的アイコン（ピンボタン・ローディング等）
+      if (window.lucide) lucide.createIcons();
+    } catch (e) {
+      console.error('setModalNoticeContent エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【インデックス移動】スナップショット内の特定位置のおたよりを表示（T-24）
+  // 範囲外は何もしない（端到達時の循環は行わない）
+  // =============================================
+  function goToNoticeByIndex(idx) {
+    try {
+      var list = NoticesPageState.modalVisibleList;
+      if (!list || idx < 0 || idx >= list.length) return;
+      NoticesPageState.modalIndex = idx;
+      setModalNoticeContent(list[idx]);
+      updateModalIndicator();
+    } catch (e) {
+      console.error('goToNoticeByIndex エラー: ' + e);
+    }
+  }
+
+  function goToPrevNotice() {
+    try {
+      var idx = NoticesPageState.modalIndex;
+      if (idx > 0) goToNoticeByIndex(idx - 1);
+    } catch (e) {
+      console.error('goToPrevNotice エラー: ' + e);
+    }
+  }
+
+  function goToNextNotice() {
+    try {
+      var idx = NoticesPageState.modalIndex;
+      var list = NoticesPageState.modalVisibleList;
+      if (list && idx < list.length - 1) goToNoticeByIndex(idx + 1);
+    } catch (e) {
+      console.error('goToNextNotice エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【モーダル】開く：notice の情報をモーダルにセットして表示
+  // T-24：開時に可視リストをスナップショット→前後スワイプの対象にする
+  // 画像はキャッシュ済みなら即時表示、未取得ならローディング→キュー（setModalNoticeContent内）
+  // =============================================
+  function openNoticeModal(notice) {
+    try {
+      // 可視リストをスナップショット（ピン留め→月別の順）
+      NoticesPageState.modalVisibleList = buildModalVisibleList();
+
+      // スナップショット内で対象 notice の位置を特定
+      var idx = -1;
+      var list = NoticesPageState.modalVisibleList;
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].id === notice.id) { idx = i; break; }
+      }
+      // 念のための防御：見つからない場合は単独表示（インジケーターは 1 / 1）
+      if (idx < 0) {
+        NoticesPageState.modalVisibleList = [notice];
+        idx = 0;
+      }
+      NoticesPageState.modalIndex = idx;
+
+      // 中身を反映
+      setModalNoticeContent(notice);
+      updateModalIndicator();
+
+      // モーダル表示・背面スクロール抑止
+      elModal.classList.add('is-open');
+      document.body.style.overflow = 'hidden';
+    } catch (e) {
+      console.error('openNoticeModal エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【スワイプ検出】（T-24）
+  // 対象要素に touchstart/touchend を結線・閾値超過で前後切替
+  // X差分 ≥50px かつ Y差分 <80px のみ確定（縦スクロール誤動作回避）
+  // 1本指のみ受付（ピンチ等は無視）
+  // =============================================
+  function attachSwipeNav(target) {
+    try {
+      if (!target) return;
+      var startX = 0, startY = 0, tracking = false;
+
+      target.addEventListener('touchstart', function(ev) {
+        if (!ev.touches || ev.touches.length !== 1) {
+          tracking = false;
+          return;
+        }
+        startX = ev.touches[0].clientX;
+        startY = ev.touches[0].clientY;
+        tracking = true;
+      }, { passive: true });
+
+      target.addEventListener('touchend', function(ev) {
+        try {
+          if (!tracking) return;
+          tracking = false;
+          if (!ev.changedTouches || ev.changedTouches.length === 0) return;
+          var t = ev.changedTouches[0];
+          var dx = t.clientX - startX;
+          var dy = t.clientY - startY;
+          if (Math.abs(dx) >= 50 && Math.abs(dy) < 80) {
+            if (dx < 0) goToNextNotice();
+            else        goToPrevNotice();
+          }
+        } catch (eT) {
+          console.error('attachSwipeNav touchend エラー: ' + eT);
+        }
+      }, { passive: true });
+
+      target.addEventListener('touchcancel', function() {
+        tracking = false;
+      }, { passive: true });
+    } catch (e) {
+      console.error('attachSwipeNav エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【削除確認モーダル】開く
+  // 拡大モーダルはそのまま・上に重ねて表示（z-index 400）
+  // =============================================
+  function openDeleteModal() {
+    try {
+      if (!elDeleteOverlay) return;
+      elDeleteOverlay.hidden = false;
+      if (window.lucide) lucide.createIcons();
+    } catch (e) {
+      console.error('openDeleteModal エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【削除確認モーダル】閉じる
+  // =============================================
+  function closeDeleteModal() {
+    try {
+      if (!elDeleteOverlay) return;
+      elDeleteOverlay.hidden = true;
+    } catch (e) {
+      console.error('closeDeleteModal エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【拡大モーダル】削除ボタンクリック
+  // 拡大モーダルはそのまま・削除確認モーダルを開く（confirm() は使わない）
+  // =============================================
+  function onDeleteClick() {
+    try {
+      var notice = NoticesPageState.modalNotice;
+      if (!notice || !notice.id) return;
+      if (NoticesPageState.deleting) return;  // 連打防止
+      openDeleteModal();
+    } catch (e) {
+      console.error('onDeleteClick エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【削除確認モーダル】「削除する」ボタンクリック
+  // 削除確認モーダルを閉じる → deleteNotice 呼び出し →
+  // 完了後：拡大モーダルも閉じる → トースト → 一覧再ロード
+  // =============================================
+  function onDeleteConfirmClick() {
+    try {
+      var notice = NoticesPageState.modalNotice;
+      if (!notice || !notice.id) {
+        closeDeleteModal();
+        return;
+      }
+      if (NoticesPageState.deleting) return;
+
+      // 削除確認モーダルは閉じてから処理開始（スピナーは拡大モーダルの削除ボタンに表示）
+      closeDeleteModal();
+
+      NoticesPageState.deleting = true;
+      var originalText = (typeof window.showLoading === 'function')
+        ? window.showLoading(elModalDelete)
+        : null;
+
+      callGAS('deleteNotice', [notice.id], function(result) {
+        try {
+          // 1) 画像キャッシュからも削除（メモリ解放・残像防止）
+          if (notice.fileId && NoticesPageState.imageCache[notice.fileId]) {
+            delete NoticesPageState.imageCache[notice.fileId];
+          }
+          // 2) 拡大モーダルを閉じる
+          closeNoticeModal();
+          // 3) トースト通知
+          showToast('削除しました', 'success');
+          // 4) 一覧を再ロード（loadNotices は自身でローディング表示も切替）
+          loadNotices();
+        } catch (e2) {
+          console.error('onDeleteConfirmClick success内エラー: ' + e2);
+        } finally {
+          NoticesPageState.deleting = false;
+          if (typeof window.hideLoading === 'function') {
+            window.hideLoading(elModalDelete, originalText);
+          }
+        }
+      }, function(err) {
+        NoticesPageState.deleting = false;
+        if (typeof window.hideLoading === 'function') {
+          window.hideLoading(elModalDelete, originalText);
+        }
+        var msg = (err && err.message) ? err.message : '削除に失敗しました';
+        showToast(msg, 'error');
+      });
+    } catch (e) {
+      console.error('onDeleteConfirmClick エラー: ' + e);
+      NoticesPageState.deleting = false;
+    }
+  }
+
+  // =============================================
+  // 【削除確認モーダル】「キャンセル」ボタンクリック
+  // 削除確認モーダルだけ閉じる（拡大モーダルは維持）
+  // =============================================
+  function onDeleteCancelClick() {
+    try {
+      closeDeleteModal();
+    } catch (e) {
+      console.error('onDeleteCancelClick エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【モーダルお気に入りボタン表示更新】notice.pinned からラベルと is-pinned クラスを反映
+  // アイコン形状は両状態とも bookmark 固定。CSS の .is-pinned で塗り（fill）を切替表現する。
+  // =============================================
+  function updateModalPinButton(notice) {
+    try {
+      if (!elModalPin || !elModalPinIcon || !elModalPinLabel) return;
+      var isPinned = (notice && notice.pinned === 'true');
+      if (isPinned) {
+        elModalPin.classList.add('is-pinned');
+        elModalPinLabel.textContent = 'お気に入り解除';
+      } else {
+        elModalPin.classList.remove('is-pinned');
+        elModalPinLabel.textContent = 'お気に入りに追加';
+      }
+    } catch (e) {
+      console.error('updateModalPinButton エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【タイトル編集】表示モード→編集モードへ切替（T-33b）
+  // 入力欄に現在値をセットしフォーカス＋全選択
+  // =============================================
+  function enterTitleEdit() {
+    try {
+      var n = NoticesPageState.modalNotice;
+      if (!n) return;
+      if (NoticesPageState.editingTitle) return;
+      if (!elModalTitleView || !elModalTitleEdit || !elModalTitleInput) return;
+
+      NoticesPageState.editingTitle = true;
+      elModalTitleInput.value = (n.title || '').toString();
+      elModalTitleView.hidden = true;
+      elModalTitleEdit.hidden = false;
+      // フォーカスは少し遅延（hidden 解除直後の focus を確実にするため）
+      setTimeout(function() {
+        try { elModalTitleInput.focus(); elModalTitleInput.select(); } catch (eFocus) {}
+      }, 30);
+    } catch (e) {
+      console.error('enterTitleEdit エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【タイトル編集】編集モード→表示モードへ戻す
+  // 保存成功後・キャンセル時・モーダルクローズ時に呼ぶ共通処理
+  // =============================================
+  function exitTitleEdit() {
+    try {
+      NoticesPageState.editingTitle = false;
+      if (elModalTitleView) elModalTitleView.hidden = false;
+      if (elModalTitleEdit) elModalTitleEdit.hidden = true;
+    } catch (e) {
+      console.error('exitTitleEdit エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【タイトル編集】キャンセル：入力を破棄して表示モードに戻す
+  // =============================================
+  function cancelTitleEdit() {
+    try {
+      exitTitleEdit();
+    } catch (e) {
+      console.error('cancelTitleEdit エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【タイトル編集】保存：updateNoticeTitle → 状態反映 → 一覧再描画 → トースト
+  // 変化なしなら何もしない・連打防止に save/cancel ボタンを disable
+  // =============================================
+  function saveTitleEdit() {
+    try {
+      var notice = NoticesPageState.modalNotice;
+      if (!notice || !notice.id) return;
+      if (!elModalTitleInput || !elModalTitleSave || !elModalTitleCancel) return;
+
+      var nextTitle = String(elModalTitleInput.value || '').trim();
+      var prevTitle = (notice.title || '').toString();
+      // 変化なしならGAS呼び出しせず表示モードへ戻す
+      if (nextTitle === prevTitle) { exitTitleEdit(); return; }
+
+      // 連打防止
+      elModalTitleSave.disabled = true;
+      elModalTitleCancel.disabled = true;
+
+      callGAS('updateNoticeTitle', [notice.id, nextTitle], function() {
+        try {
+          // ローカル notices 配列内の対象を書き換え（pin と同じパターン）
+          var list = NoticesPageState.notices || [];
+          for (var i = 0; i < list.length; i++) {
+            if (list[i].id === notice.id) { list[i].title = nextTitle; break; }
+          }
+          // モーダル側 notice 参照も更新（再オープン時の整合性）
+          NoticesPageState.modalNotice.title = nextTitle;
+
+          // モーダル表示反映（空保存時は「（タイトルなし）」muted）
+          if (elModalTitle) {
+            if (nextTitle) {
+              elModalTitle.textContent = nextTitle;
+              elModalTitle.classList.remove('is-empty');
+            } else {
+              elModalTitle.textContent = '（タイトルなし）';
+              elModalTitle.classList.add('is-empty');
+            }
+          }
+          // 一覧サムネのタイトル表示を更新（追加・削除・変更すべてを反映）
+          renderList();
+          showToast('タイトルを保存しました', 'success');
+        } catch (e2) {
+          console.error('saveTitleEdit success内エラー: ' + e2);
+        } finally {
+          elModalTitleSave.disabled = false;
+          elModalTitleCancel.disabled = false;
+          exitTitleEdit();
+        }
+      }, function(err) {
+        elModalTitleSave.disabled = false;
+        elModalTitleCancel.disabled = false;
+        var msg = (err && err.message) ? err.message : 'タイトルの保存に失敗しました';
+        showToast(msg, 'error');
+      });
+    } catch (e) {
+      if (elModalTitleSave)   elModalTitleSave.disabled = false;
+      if (elModalTitleCancel) elModalTitleCancel.disabled = false;
+      console.error('saveTitleEdit エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【ピン留めボタンクリック】GAS で PINNED を反転 → ローカル state 更新 → 再描画
+  // 連打防止：NoticesPageState.pinning フラグ
+  // =============================================
+  function onPinClick() {
+    try {
+      var notice = NoticesPageState.modalNotice;
+      if (!notice || !notice.id) return;
+      if (NoticesPageState.pinning) return;
+
+      var nextPinned = (notice.pinned !== 'true');  // true なら解除、false ならピン留め
+
+      NoticesPageState.pinning = true;
+      if (elModalPin) elModalPin.disabled = true;
+
+      callGAS('updateNoticePin', [notice.id, nextPinned], function(result) {
+        try {
+          // ローカル notices 配列内の対象を書き換え（オブジェクト参照ベースで更新）
+          var list = NoticesPageState.notices || [];
+          for (var i = 0; i < list.length; i++) {
+            if (list[i].id === notice.id) {
+              list[i].pinned = nextPinned ? 'true' : 'false';
+              break;
+            }
+          }
+          // モーダル側 notice 参照も更新（DOM 反映用）
+          notice.pinned = nextPinned ? 'true' : 'false';
+          NoticesPageState.modalNotice.pinned = notice.pinned;
+
+          // モーダルボタンの見た目を更新
+          updateModalPinButton(notice);
+          // 一覧を再描画（ピン留めセクション⇄月別グループ間で移動）
+          renderList();
+          // トースト通知
+          showToast(nextPinned ? 'お気に入りに追加しました' : 'お気に入りを解除しました', 'success');
+        } catch (e2) {
+          console.error('onPinClick success内エラー: ' + e2);
+        } finally {
+          NoticesPageState.pinning = false;
+          if (elModalPin) elModalPin.disabled = false;
+        }
+      }, function(err) {
+        NoticesPageState.pinning = false;
+        if (elModalPin) elModalPin.disabled = false;
+        var msg = (err && err.message) ? err.message : 'お気に入りの更新に失敗しました';
+        showToast(msg, 'error');
+      });
+    } catch (e) {
+      console.error('onPinClick エラー: ' + e);
+      NoticesPageState.pinning = false;
+      if (elModalPin) elModalPin.disabled = false;
+    }
+  }
+
+  // =============================================
+  // 【モーダル】閉じる
+  // =============================================
+  function closeNoticeModal() {
+    try {
+      elModal.classList.remove('is-open');
+      document.body.style.overflow = '';
+      // 画像src属性を消して残像防止・次回開き直しでローディング表示を確実に出す
+      if (elModalImg) elModalImg.removeAttribute('src');
+      if (elModalImg) elModalImg.hidden = true;
+      if (elModalImgLoading) elModalImgLoading.hidden = true;
+      if (elModalImgMsg) elModalImgMsg.hidden = true;
+      // PDF canvas をクリアして次回開き直しで残像が出ないようにする
+      if (elModalPdfCanvas) {
+        try {
+          var ctx = elModalPdfCanvas.getContext('2d');
+          if (ctx) ctx.clearRect(0, 0, elModalPdfCanvas.width, elModalPdfCanvas.height);
+        } catch (e1) {}
+        elModalPdfCanvas.hidden = true;
+      }
+      if (elModalPdfLoading) elModalPdfLoading.hidden = true;
+      // T-24：スナップショットとインジケーターをリセット
+      NoticesPageState.modalVisibleList = [];
+      NoticesPageState.modalIndex = -1;
+      if (elModalIndicator) elModalIndicator.hidden = true;
+      NoticesPageState.modalNotice = null;
+      // T-33b：編集モードが残っていた場合は強制終了（次回開いた時のちらつき防止）
+      if (NoticesPageState.editingTitle) {
+        exitTitleEdit();
+      }
+    } catch (e) {
+      console.error('closeNoticeModal エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【ロード】子ども一覧 → 続けて おたより一覧
+  // =============================================
+  function loadChildren() {
+    try {
+      callGAS('getChildren', [], function(result) {
+        NoticesPageState.children = result || [];
+        // childAvatarMap を再構築（{childId: avatarFileId}）
+        NoticesPageState.childAvatarMap = {};
+        // childColorMap を再構築（{childId: color}）（T-32）
+        NoticesPageState.childColorMap = {};
+        for (var ci = 0; ci < NoticesPageState.children.length; ci++) {
+          var c = NoticesPageState.children[ci];
+          if (c && c.avatarFileId) {
+            NoticesPageState.childAvatarMap[c.id] = c.avatarFileId;
+          }
+          if (c && c.id) {
+            NoticesPageState.childColorMap[c.id] = c.color || '#4D96FF';
+          }
+        }
+        renderTabs();
+        loadNotices();
+      }, function(err) {
+        showToast('子ども一覧の取得に失敗しました', 'error');
+      });
+    } catch (e) {
+      console.error('loadChildren エラー: ' + e);
+    }
+  }
+
+  function loadNotices() {
+    try {
+      // 旧キューをクリア（取得中の1件は完了まで走る・新一覧の上から再開させる）
+      NoticesPageState.fetchQueue = [];
+
+      // ページローディング表示・一覧コンテンツは隠す（前画面の残像を抑止）
+      if (elPageLoading) elPageLoading.hidden = false;
+      if (elListContent) elListContent.hidden = true;
+
+      var childId = NoticesPageState.selectedChildId;
+      callGAS('getNotices', [childId], function(result) {
+        NoticesPageState.notices = result || [];
+        // 取得完了 → ローディングを隠し、一覧コンテンツを表示してから描画
+        if (elPageLoading) elPageLoading.hidden = true;
+        if (elListContent) elListContent.hidden = false;
+        // 月フィルタープルダウンを再構築（その後で一覧描画）
+        renderMonthSelect();
+        renderList();  // renderList内のbuildNoticeItemでキューが再構築される
+      }, function(err) {
+        // 失敗時も表示を戻す（空の一覧が出るが復帰可能にする）
+        if (elPageLoading) elPageLoading.hidden = true;
+        if (elListContent) elListContent.hidden = false;
+        showToast('おたよりの取得に失敗しました', 'error');
+      });
+    } catch (e) {
+      console.error('loadNotices エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【ページ再訪問時】「すべて」タブにリセット＋再ロード
+  // =============================================
+  function onEnterPage() {
+    try {
+      NoticesPageState.selectedChildId   = null;
+      NoticesPageState.selectedYearMonth = null;  // 月フィルターもリセット
+      closeNoticeModal();
+      loadChildren();
+    } catch (e) {
+      console.error('onEnterPage エラー: ' + e);
+    }
+  }
+
+  // =============================================
+  // 【初期化】DOM参照取得・イベント結線・初回ロード
+  // =============================================
+  function init() {
+    try {
+      elTabs             = document.getElementById('nt-tabs');
+      elMonthFilter      = document.getElementById('nt-month-filter');
+      elMonthSelect      = document.getElementById('nt-month-select');
+      elGroups           = document.getElementById('nt-groups');
+      elEmptyNoChildren  = document.getElementById('nt-empty-no-children');
+      elEmptyNoNotices   = document.getElementById('nt-empty-no-notices');
+      elGoChildren       = document.getElementById('nt-go-children');
+      elGoUpload         = document.getElementById('nt-go-upload');
+      elCacheBanner      = document.getElementById('nt-cache-banner');
+      elCacheBannerClose = document.getElementById('nt-cache-banner-close');
+      elPageLoading      = document.getElementById('nt-page-loading');
+      elListContent      = document.getElementById('nt-list-content');
+      elModal            = document.getElementById('nt-modal');
+      elModalImg         = document.getElementById('nt-modal-img');
+      elModalImgLoading  = document.getElementById('nt-modal-img-loading');
+      elModalImgMsg      = document.getElementById('nt-modal-img-msg');
+      elModalPdfCanvas   = document.getElementById('nt-modal-pdf-canvas');
+      elModalPdfLoading  = document.getElementById('nt-modal-pdf-loading');
+      elModalChild       = document.getElementById('nt-modal-child');
+      elModalYm          = document.getElementById('nt-modal-ym');
+      elModalAt          = document.getElementById('nt-modal-at');
+      elModalTitleRow    = document.getElementById('nt-modal-title-row');
+      elModalTitle       = document.getElementById('nt-modal-title');
+      elModalTitleView   = document.getElementById('nt-modal-title-view');
+      elModalTitleEdit   = document.getElementById('nt-modal-title-edit');
+      elModalTitleEditBtn= document.getElementById('nt-modal-title-edit-btn');
+      elModalTitleInput  = document.getElementById('nt-modal-title-input');
+      elModalTitleSave   = document.getElementById('nt-modal-title-save');
+      elModalTitleCancel = document.getElementById('nt-modal-title-cancel');
+      elModalDrive       = document.getElementById('nt-modal-drive');
+      elModalDelete      = document.getElementById('nt-modal-delete');
+      elModalPin         = document.getElementById('nt-modal-pin');
+      elModalPinIcon     = document.getElementById('nt-modal-pin-icon');
+      elModalPinLabel    = document.getElementById('nt-modal-pin-label');
+      elModalIndicator   = document.getElementById('nt-modal-indicator');
+      elModalImgWrap     = elModal ? elModal.querySelector('.nt-modal-img-wrap') : null;
+      elDeleteOverlay    = document.getElementById('nt-delete-overlay');
+      elDeleteConfirm    = document.getElementById('nt-delete-confirm');
+      elDeleteCancel     = document.getElementById('nt-delete-cancel');
+
+      // キャッシュ警告バナーの×ボタン
+      if (elCacheBannerClose) {
+        elCacheBannerClose.addEventListener('click', function() {
+          elCacheBanner.hidden = true;
+          NoticesPageState.bannerDismissed = true;
+        });
+      }
+
+      // 空状態ボタン
+      elGoChildren.addEventListener('click', function() { showPage('children'); });
+      elGoUpload.addEventListener('click',   function() { showPage('upload'); });
+
+      // モーダル閉じる：data-nt-close 属性を持つ全要素
+      var closers = elModal.querySelectorAll('[data-nt-close]');
+      for (var i = 0; i < closers.length; i++) {
+        closers[i].addEventListener('click', closeNoticeModal);
+      }
+
+      // 削除ボタン（拡大モーダル内）→ 削除確認モーダルを開く
+      if (elModalDelete) {
+        elModalDelete.addEventListener('click', onDeleteClick);
+      }
+
+      // ピン留めボタン（拡大モーダル内）→ GAS で PINNED を反転
+      if (elModalPin) {
+        elModalPin.addEventListener('click', onPinClick);
+      }
+
+      // 月フィルタープルダウン（T-33c）→ 変更で即時フィルタリング
+      if (elMonthSelect) {
+        elMonthSelect.addEventListener('change', onMonthSelectChange);
+      }
+
+      // タイトル編集（T-33b：拡大モーダル内・鉛筆 → 保存/キャンセル）
+      if (elModalTitleEditBtn) elModalTitleEditBtn.addEventListener('click', enterTitleEdit);
+      if (elModalTitleSave)    elModalTitleSave.addEventListener('click', saveTitleEdit);
+      if (elModalTitleCancel)  elModalTitleCancel.addEventListener('click', cancelTitleEdit);
+      if (elModalTitleInput) {
+        elModalTitleInput.addEventListener('keydown', function(ev) {
+          if (ev.key === 'Enter')  { ev.preventDefault(); saveTitleEdit(); }
+          if (ev.key === 'Escape') { ev.preventDefault(); cancelTitleEdit(); }
+        });
+      }
+
+      // 削除確認モーダルの2ボタン
+      if (elDeleteConfirm) {
+        elDeleteConfirm.addEventListener('click', onDeleteConfirmClick);
+      }
+      if (elDeleteCancel) {
+        elDeleteCancel.addEventListener('click', onDeleteCancelClick);
+      }
+
+      // Escape／←／→ キーでモーダル操作（T-24：PCキーボード前後切替）
+      document.addEventListener('keydown', function(ev) {
+        if (!elModal.classList.contains('is-open')) return;
+        // 削除確認モーダルが開いている間はナビゲーションを無効化
+        if (elDeleteOverlay && !elDeleteOverlay.hidden) return;
+        if (ev.key === 'Escape') {
+          closeNoticeModal();
+        } else if (ev.key === 'ArrowLeft') {
+          goToPrevNotice();
+        } else if (ev.key === 'ArrowRight') {
+          goToNextNotice();
+        }
+      });
+
+      // 画像エリアにスワイプ検出を結線（T-24：スマホ片手操作）
+      attachSwipeNav(elModalImgWrap);
+
+      // BottomNav・SideNav の「一覧」クリックでリセット＋再ロード
+      var listBtns = document.querySelectorAll('[data-nav-page="list"]');
+      for (var j = 0; j < listBtns.length; j++) {
+        listBtns[j].addEventListener('click', onEnterPage);
+      }
+
+      // =============================================
+      // 【公開】外部ページから「特定の子どもタブを選択して一覧を開く」入口
+      // home.html の子どもカード→一覧遷移などで使用
+      // 引数：childId（'child_001' 等。空文字や null は「すべて」扱い）
+      // 注：showPage('list') は呼び出し側で実行する
+      // =============================================
+      window.openNoticesForChild = function(childId) {
+        try {
+          NoticesPageState.selectedChildId =
+            (childId === undefined || childId === null || childId === '') ? null : String(childId);
+          NoticesPageState.selectedYearMonth = null;  // 月フィルターもリセット
+          closeNoticeModal();
+          // loadChildren→loadNotices の間も「読み込み中...」を見せ続ける（前画面残像の抑止）
+          if (elPageLoading) elPageLoading.hidden = false;
+          if (elListContent) elListContent.hidden = true;
+          loadChildren();   // children → notices の順で再ロードされる
+        } catch (e2) {
+          console.error('openNoticesForChild エラー: ' + e2);
+        }
+      };
+
+      // 初回データロード
+      loadChildren();
+    } catch (e) {
+      console.error('notices.html init エラー: ' + e);
+    }
+  }
+
+  // DOM準備完了後に初期化
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>
